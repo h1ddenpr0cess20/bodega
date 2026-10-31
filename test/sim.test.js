@@ -143,7 +143,7 @@ test('a shopper gets angry when the front-facing batch is expired', () => {
   assert.ok(state.events.some((event) => /expired bananas/i.test(event.message)));
 });
 
-test('a saved store resumes its exact ledger and pauses safely after reload', () => {
+test('a saved store resumes its exact ledger and active simulation after reload', () => {
   const state = prepareState();
   placeOrder(state, 'eggs', 2);
   borrowCredit(state, 125);
@@ -152,10 +152,28 @@ test('a saved store resumes its exact ledger and pauses safely after reload', ()
   assert.equal(copy.cash, state.cash);
   assert.equal(copy.debt, state.debt);
   assert.equal(copy.stockroom.eggs[0].qty, state.stockroom.eggs[0].qty);
-  assert.equal(copy.paused, true);
+  assert.equal(copy.paused, false);
   assert.equal(typeof copy.random, 'function');
   assert.equal(copy.random(), state.random());
   assert.equal(loadGameState('{broken'), null);
+});
+
+test('a restored open store advances customer movement and the business clock without pressing resume', () => {
+  const state = prepareState();
+  state.minute = 9 * 60;
+  state.customers.push({
+    id: 9991, character: 'artist', name: 'Maya', tag: 'visitor', demandId: 'apples',
+    basket: [{ productId: 'apples', qty: 1 }], phase: 'browsing',
+    phaseTotal: 30, phaseTimer: 30, result: null, bought: 0, spend: 0,
+  });
+  const restored = loadGameState(saveGameState(state));
+  assert.ok(restored);
+  assert.equal(restored.paused, false);
+  const beforeMinute = restored.minute;
+  const beforeTimer = restored.customers[0].phaseTimer;
+  advanceGame(restored, 0.5);
+  assert.ok(restored.minute > beforeMinute);
+  assert.ok(restored.customers[0].phaseTimer < beforeTimer);
 });
 
 test('customers shop with multi-line baskets and can complete valid lines after rejecting an expired item', () => {

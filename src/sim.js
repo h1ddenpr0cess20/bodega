@@ -200,7 +200,7 @@ export function loadGameState(serialized) {
     const state = createGameState(saved.rngState ?? 1);
     Object.assign(state, saved);
     state.random = createRng(saved.rngState ?? 1);
-    state.paused = state.started && !state.dayEnded && !state.gameOver;
+    state.paused = false; // Resume active days on reload; no offline time is simulated.
     state.orderCases ??= Object.fromEntries(PRODUCTS.map((p) => [p.id, 1]));
     state.reviews ??= OPENING_REVIEWS.map((review) => ({ ...review })).reverse();
     state.dayStats ??= {};
