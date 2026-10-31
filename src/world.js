@@ -2,6 +2,7 @@ import * as GFX from 'madness-engine/gfx';
 import { createStage } from 'madness-engine/stage';
 import { createView } from 'madness-engine/view';
 import { createModel } from 'madness-engine/models/model';
+import { screenMovementToWorld } from './controls.js';
 import { cloth, person } from 'madness-engine/characters/person';
 import purchasingSuit from 'madness-engine/characters/suit';
 import { floorTexture, wallTexture } from 'madness-engine/textures/venue';
@@ -570,30 +571,36 @@ export async function createBodegaWorld(host, onProgress = () => {}) {
   scene.add(ownerTag);
   const playerKeys = new Set();
   const keyDirections = {
-    KeyW: 'up', ArrowUp: 'up',
-    KeyS: 'down', ArrowDown: 'down',
-    KeyA: 'left', ArrowLeft: 'left',
-    KeyD: 'right', ArrowRight: 'right',
+    KeyW: 'up', ArrowUp: 'up', w: 'up', W: 'up',
+    KeyS: 'down', ArrowDown: 'down', s: 'down', S: 'down',
+    KeyA: 'left', ArrowLeft: 'left', a: 'left', A: 'left',
+    KeyD: 'right', ArrowRight: 'right', d: 'right', D: 'right',
   };
   const editableTarget = () => {
     const el = document.activeElement;
-    return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+    return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
   };
+  const clearPlayerKeys = () => playerKeys.clear();
   const onKeyDown = (event) => {
-    const direction = keyDirections[event.code];
-    if (!direction || editableTarget()) return;
+    if (event.key === 'Shift') {
+      if (!editableTarget()) playerKeys.add('run');
+      return;
+    }
+    const direction = keyDirections[event.code] ?? keyDirections[event.key];
+    if (!direction || editableTarget() || event.ctrlKey || event.metaKey || event.altKey) return;
     playerKeys.add(direction);
     if (event.shiftKey) playerKeys.add('run');
     event.preventDefault();
   };
   const onKeyUp = (event) => {
-    const direction = keyDirections[event.code];
+    const direction = keyDirections[event.code] ?? keyDirections[event.key];
     if (direction) playerKeys.delete(direction);
     if (event.key === 'Shift') playerKeys.delete('run');
   };
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('keyup', onKeyUp);
-  window.addEventListener('blur', () => playerKeys.clear());
+  window.addEventListener('blur', clearPlayerKeys);
+  document.addEventListener('visibilitychange', clearPlayerKeys);
   document.querySelectorAll('[data-player-move]').forEach((button) => {
     const direction = button.dataset.playerMove;
     const down = (event) => { event.preventDefault(); playerKeys.add(direction); button.setPointerCapture?.(event.pointerId); };
@@ -820,12 +827,12 @@ export async function createBodegaWorld(host, onProgress = () => {}) {
 
   function updatePlayer(state, dt) {
     const canMove = state.started && !state.paused && !state.dayEnded && !state.gameOver;
-    let dx = (playerKeys.has('right') ? 1 : 0) - (playerKeys.has('left') ? 1 : 0);
-    let dz = (playerKeys.has('down') ? 1 : 0) - (playerKeys.has('up') ? 1 : 0);
-    const magnitude = Math.hypot(dx, dz);
-    const moving = canMove && magnitude > 0;
+    const horizontal = (playerKeys.has('right') ? 1 : 0) - (playerKeys.has('left') ? 1 : 0);
+    const vertical = (playerKeys.has('up') ? 1 : 0) - (playerKeys.has('down') ? 1 : 0);
+    const moving = canMove && (horizontal !== 0 || vertical !== 0);
     if (moving) {
-      dx /= magnitude; dz /= magnitude;
+      // WASD, arrows and touch controls all follow the current camera orientation.
+      const [dx, dz] = screenMovementToWorld(horizontal, vertical, stage.view.yaw);
       const speed = PLAYER_SPEED * (playerKeys.has('run') ? 1.45 : 1);
       const stepX = dx * speed * dt;
       const stepZ = dz * speed * dt;
@@ -916,7 +923,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) {
     update,
     setState(state) { window.__bodegaState = state; },
     setOpen(open) { openSign.material.color.set(open ? '#ffffff' : '#a0a0a0'); },
-    dispose() { run?.(); window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp); },
+    dispose() { run?.(); clearPlayerKeys(); window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp); window.removeEventListener('blur', clearPlayerKeys); document.removeEventListener('visibilitychange', clearPlayerKeys); },
   };
   window.__bodegaWorld = world;
   onProgress('The shutters are ready', 100);

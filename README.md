@@ -55,10 +55,12 @@ Drag the 3D shop to orbit the camera; use the mouse wheel to zoom. Move the owne
 src/
   main.js      UI, interactions, owner controls, loading gate, day clock, save/resume
   sim.js       store rules, inventory lots, progression, staff automation, finance, customer outcomes
+  controls.js  camera-relative keyboard, arrow-key and touch movement vectors
   world.js     Madness Engine scene, player, characters, cats, pathfinding, products and shop fixtures
   style.css    responsive management interface and title/day-end overlays
 test/
-  sim.test.js  business-rule regression tests
+  sim.test.js      business-rule regression tests
+  controls.test.js camera-relative player movement tests
 ```
 
 ## Inventory rule
