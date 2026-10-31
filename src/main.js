@@ -1,7 +1,8 @@
 import './style.css';
 import { createAudio } from 'madness-engine/audio';
 import {
-  PRODUCTS, PRODUCT_BY_ID, STAFF, CAT_ROSTER, createGameState, money, productNow,
+  PRODUCTS, PRODUCT_BY_ID, STAFF, CAT_ROSTER, PURCHASING_MANAGER, createGameState, money, productNow,
+  getStoreLevelProgress, hirePurchasingManager, setAutomaticPurchasing,
   shelfQuantity, stockroomQuantity, expiredQuantity, oldestShelfBatch, inventoryHealth,
   restockProduct, restockAll, placeOrder, pullExpired, adjustPrice, borrowCredit,
   repayCredit, advanceGame, beginDay, togglePause, startNextDay, saveGameState, loadGameState,
@@ -29,10 +30,33 @@ let lastPanelRender = 0;
 let lastHeaderRender = 0;
 let realTime = 0;
 
+function updateLoading(label, progress) {
+  const status = $('#loading-status');
+  const fill = $('#loading-progress-fill');
+  const percent = $('#loading-percent');
+  if (status) status.textContent = label;
+  if (fill) fill.style.width = `${Math.max(0, Math.min(100, progress))}%`;
+  if (percent) percent.textContent = `${Math.round(progress)}%`;
+}
+
 const audio = createAudio({ storageKey: 'bodega.muted', glue: true });
 audioMuted = audio.muted;
-const world = await createBodegaWorld($('#world'));
-world.setState(state);
+updateLoading('Warming the lights and opening the shop floor', 0);
+let world;
+try {
+  world = await createBodegaWorld($('#world'), updateLoading);
+  world.setState(state);
+  updateLoading('Everything is ready. Welcome to the block.', 100);
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  $('#loading-overlay')?.classList.add('loading-finished');
+  await new Promise((resolve) => setTimeout(resolve, 260));
+  $('#loading-overlay')?.classList.add('hidden');
+} catch (error) {
+  console.error('Bodega failed to load:', error);
+  const status = $('#loading-status');
+  if (status) status.textContent = 'The shop could not be opened. Check the connection and reload.';
+  throw error;
+}
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
@@ -83,6 +107,7 @@ function recordNewEvents() {
     } else if (event.type === 'sale') {
       if (!audioMuted) audio.jingle([64, 69, 76], { type: 'triangle', gain: 0.055, length: 0.12 });
     } else if (event.type === 'order') notify(event.message, 'good');
+    else if (event.type === 'staff' && (event.message.includes('put ') || event.message.includes('Rafael Ortiz ordered'))) notify(event.message, 'good');
     else if (event.type === 'cat') notify(event.message, event.detail?.includes('happier customer') ? 'good' : 'info');
     else if (event.type === 'review') {
       const rating = Number(event.message.match(/(\d)-star/)?.[1] ?? 3);
@@ -111,7 +136,10 @@ function updateHeader() {
   $('#pause-toggle').title = state.paused ? 'Resume simulation' : 'Pause simulation';
   $('#foot-customers').textContent = `${state.customers.length} SHOPPERS INSIDE`;
   $('#foot-traffic').textContent = `FOOTFALL ${trafficLabel(state)}`;
-  $('#foot-staff').textContent = `${STAFF.length} STAFF ON SHIFT`;
+  const staffTask = state.staffWork ?? { stage: 'idle' };
+  $('#foot-staff').textContent = staffTask.stage === 'walking-to-shelf' ? 'MARISOL ON THE FLOOR'
+    : staffTask.stage === 'stocking' ? 'MARISOL STOCKING'
+      : staffTask.stage === 'walking-back' ? 'MARISOL RETURNING' : `${STAFF.length + (state.purchasingManagerHired ? 1 : 0)} STAFF ON SHIFT`;
   const health = inventoryHealth(state);
   const alertCount = health.expired + health.empty;
   $('#shelf-alert-count').textContent = alertCount;
@@ -121,6 +149,7 @@ function updateHeader() {
     : health.expired ? `${health.expired} expired units need to come off the shelf.`
       : 'Fresh stock. Fair prices. Good people.';
   $('#start-overlay').classList.toggle('hidden', state.started);
+  $('#player-controls')?.classList.toggle('hidden', !state.started || state.paused || state.dayEnded || state.gameOver);
   $('#pause-toggle').disabled = !state.started || state.dayEnded;
   $('#sound-toggle').textContent = audioMuted ? '♫̸' : '♫';
   $('#sound-toggle').classList.toggle('muted', audioMuted);
@@ -128,9 +157,8 @@ function updateHeader() {
 }
 
 function eventIcon(type) {
-  return ({ sale: '↗', customer: '♙', danger: '!', warning: '△', order: '▣', stock: '↔', waste: '×', finance: '$', close: '▣', good: '✓', note: '✳', review: '★', cat: '♥' })[type] ?? '·';
+  return ({ sale: '↗', customer: '♙', danger: '!', warning: '△', order: '▣', stock: '↔', staff: '↻', level: '↑', waste: '×', finance: '$', close: '▣', good: '✓', note: '✳', review: '★', cat: '♥' })[type] ?? '·';
 }
-
 function renderActivity(limit = 6) {
   return `<div class="activity-list">${state.events.slice(0, limit).map((event) => `
     <div class="activity-row activity-${event.type}">
@@ -338,26 +366,59 @@ function financePanel() {
 }
 
 function staffPanel() {
+  const level = getStoreLevelProgress(state);
+  const manager = PURCHASING_MANAGER;
+  const managerHired = Boolean(state.purchasingManagerHired);
+  const unlocked = level.level >= manager.unlockLevel;
+  const canHire = unlocked && !managerHired && state.cash >= manager.hireCost;
+  const managerCard = managerHired ? `
+    <div class='manager-card manager-hired'>
+      <div class='manager-card-heading'><span class='manager-avatar'>RO</span><span><strong>Rafael Ortiz</strong><small>PURCHASING MANAGER · ON SHIFT</small></span><span class='tag tag-good'>HIRED</span></div>
+      <p>Checks stock coverage and places supplier orders when a line is running low. Orders are paid from register cash, never from your credit line.</p>
+      <div class='manager-rule'><span>CASH BUFFER</span><strong>${money(manager.cashReserve)}</strong><small>Held back for rent, wages and day-to-day operations.</small></div>
+      <div class='manager-automation'><div><strong>AUTOMATIC PURCHASING</strong><small>${state.automaticPurchasingEnabled ? 'Rafael is monitoring your shelves.' : 'Automatic orders are paused.'}</small></div><button class='secondary-button' data-action='toggle-auto-purchase'>${state.automaticPurchasingEnabled ? 'PAUSE' : 'RESUME'}</button></div>
+      <div class='fine-print'>Daily wage: ${money(manager.wage)} · Order review roughly every 90 in-game minutes · One or two cases at a time.</div>
+    </div>` : `
+    <div class='manager-card manager-locked'>
+      <div class='manager-card-heading'><span class='manager-avatar'>RO</span><span><strong>Rafael Ortiz</strong><small>PURCHASING MANAGER</small></span><span class='tag ${unlocked ? 'tag-warning' : 'tag-muted'}'>${unlocked ? 'AVAILABLE' : 'LOCKED'}</span></div>
+      <p>Unlock a dedicated purchasing manager who monitors demand, shelf stock and backroom coverage, then places sensible supplier orders for you.</p>
+      <div class='unlock-progress'><div class='unlock-progress-heading'><span>STORE EXPERIENCE</span><strong>LEVEL ${level.level} / ${manager.unlockLevel}</strong></div><div class='unlock-progress-track'><i style='width:${level.progress}%'></i></div><small>${level.experience} XP · ${level.remaining} XP to next level</small></div>
+      <div class='manager-costs'><div><span>HIRING COST</span><strong>${money(manager.hireCost)}</strong></div><div><span>DAILY WAGE</span><strong>${money(manager.wage)}</strong></div><div><span>UNLOCK</span><strong>LEVEL ${manager.unlockLevel}</strong></div></div>
+      <button class='primary-button manager-hire-button' data-action='hire-purchasing-manager' ${canHire ? '' : 'disabled'}>${unlocked ? 'HIRE RAFAEL ↗' : 'REACH LEVEL ' + manager.unlockLevel + ' TO UNLOCK'}</button>
+      <div class='fine-print'>${!unlocked ? 'Build the store through completed customer visits and good service.' : state.cash < manager.hireCost ? 'You have unlocked the role. Build up enough register cash to cover the hiring cost.' : 'Hiring adds his wage to daily payroll. Automatic orders will keep a cash reserve and never borrow.'}</div>
+    </div>`;
+  const activeStaff = [...STAFF, ...(managerHired ? [manager] : [])];
   return `
-    <div class="panel-section">
-      <div class="section-heading"><div><div class="eyebrow">YOUR CREW</div><h3>People of the bodega</h3></div><span class="tag tag-good">ON SHIFT</span></div>
-      <p class="product-description">Good people make a good store. Your crew is on the clock whenever the shutters are up.</p>
-      <div class="staff-list">${STAFF.map((person, index) => `<div class="staff-card"><div class="staff-avatar staff-avatar-${index}">${index === 0 ? 'LR' : 'MV'}</div><div class="staff-copy"><strong>${person.name}</strong><span>${person.role}</span><small>${money(person.wage)} / day · full shift</small></div><span class="staff-status">ON DUTY</span></div>`).join('')}</div>
-      <div class="staff-note"><span>✳</span><div><strong>LOU — THE REGISTER</strong><p>Keeps the queue moving and knows everybody's usual. Payroll: ${money(STAFF[0].wage)} per day.</p></div></div>
-      <div class="staff-note"><span>↻</span><div><strong>MARISOL — THE FLOOR</strong><p>Runs deliveries out to the shelves and keeps the date rotation in order. Payroll: ${money(STAFF[1].wage)} per day.</p></div></div>
+    <div class='panel-section'>
+      <div class='section-heading'><div><div class='eyebrow'>YOUR CREW</div><h3>People of the bodega</h3></div><span class='tag tag-good'>${activeStaff.length} ON SHIFT</span></div>
+      <p class='product-description'>Good people make a good store. Your crew is on the clock whenever the shutters are up.</p>
+      <div class='staff-task-card'>
+        <div class='staff-task-heading'><strong>MARISOL'S FLOOR SHIFT</strong><span>${state.staffWork?.stage === 'idle' ? 'ON STANDBY' : state.staffWork.stage === 'stocking' ? 'STOCKING NOW' : state.staffWork.stage === 'walking-back' ? 'RETURNING TO STOCKROOM' : 'ON THE MOVE'}</span></div>
+        <p>${state.staffWork?.productId ? 'Taking ' + escapeHtml(PRODUCT_BY_ID[state.staffWork.productId].short.toLowerCase()) + ' to the floor.' : 'She checks low shelves automatically and replenishes them from in-date backroom stock.'}</p>
+        <small>Oldest valid expiry first · expired deliveries stay off the shelf</small>
+      </div>
+      <div class='staff-list'>${activeStaff.map((person, index) => `<div class='staff-card'><div class='staff-avatar staff-avatar-${index}'>${person.id === 'lou' ? 'LR' : person.id === 'marisol' ? 'MV' : 'RO'}</div><div class='staff-copy'><strong>${person.name}</strong><span>${person.role}</span><small>${money(person.wage)} / day · full shift</small></div><span class='staff-status'>ON DUTY</span></div>`).join('')}</div>
+      <div class='staff-note'><span>✳</span><div><strong>LOU — THE REGISTER</strong><p>Keeps the queue moving and knows everybody's usual. Payroll: ${money(STAFF[0].wage)} per day.</p></div></div>
+      <div class='staff-note'><span>↻</span><div><strong>MARISOL — THE FLOOR</strong><p>Runs deliveries out to the shelves and keeps the date rotation in order. Payroll: ${money(STAFF[1].wage)} per day.</p></div></div>
     </div>
-    <div class="panel-section cat-section">
-      <div class="section-heading"><div><div class="eyebrow">UNPAID, UNBOTHERED</div><h3>The bodega cats</h3></div><span class="tag tag-good">3 MANAGERS</span></div>
-      <div class="cat-list">${CAT_ROSTER.map((cat) => `<div class="cat-card"><div class="cat-portrait cat-${cat.coat}"><span>✦</span></div><div><strong>${cat.name}</strong><span>${cat.coat} coat · ${cat.job}</span></div><small>PERMANENT</small></div>`).join('')}</div>
-      <div class="fine-print">They do not take a salary. They do occasionally take the warmest chair, a patch of sunlight, or an entire shelf to themselves.</div>
-      <div class="cat-odds-note"><strong>THE CUSTOMER FACTOR</strong><span>25% of shoppers are charmed · 20% get annoyed · 55% are indifferent. Cat encounters can sway mood, reputation, and reviews.</span></div>
+    <div class='panel-section'>
+      <div class='section-heading'><div><div class='eyebrow'>GROW THE BUSINESS</div><h3>Unlock new staff</h3></div><span class='tag tag-muted'>LEVEL ${level.level}</span></div>
+      <div class='experience-line'><span>BUSINESS EXPERIENCE</span><strong>${level.experience} XP</strong></div>
+      <div class='unlock-progress-track'><i style='width:${level.progress}%'></i></div>
+      <div class='manager-unlock-caption'>${level.remaining} XP until the next store level. Rafael Ortiz becomes available at Level ${manager.unlockLevel}.</div>
+      ${managerCard}
     </div>
-    <div class="panel-section">
-      <div class="section-heading"><div><div class="eyebrow">HOUSEKEEPING</div><h3>Store standards</h3></div></div>
-      <div class="standards-list"><div><span>✓</span> Rotate stock by expiry date, not delivery date.</div><div><span>✓</span> Keep dairy, eggs and meat in the cold case.</div><div><span>✓</span> Pull expired items from the shelf and stockroom.</div><div><span>✓</span> Pay the supplier before the next order.</div></div>
+    <div class='panel-section cat-section'>
+      <div class='section-heading'><div><div class='eyebrow'>UNPAID, UNBOTHERED</div><h3>The bodega cats</h3></div><span class='tag tag-good'>3 MANAGERS</span></div>
+      <div class='cat-list'>${CAT_ROSTER.map((cat) => `<div class='cat-card'><div class='cat-portrait cat-${cat.coat}'><span>✦</span></div><div><strong>${cat.name}</strong><span>${cat.coat} coat · ${cat.job}</span></div><small>PERMANENT</small></div>`).join('')}</div>
+      <div class='fine-print'>They do not take a salary. They do occasionally take the warmest chair, a patch of sunlight, or an entire shelf to themselves.</div>
+      <div class='cat-odds-note'><strong>THE CUSTOMER FACTOR</strong><span>25% of shoppers are charmed · 20% get annoyed · 55% are indifferent. Cat encounters can sway mood, reputation, and reviews.</span></div>
+    </div>
+    <div class='panel-section'>
+      <div class='section-heading'><div><div class='eyebrow'>HOUSEKEEPING</div><h3>Store standards</h3></div></div>
+      <div class='standards-list'><div><span>✓</span> Rotate stock by expiry date, not delivery date.</div><div><span>✓</span> Keep dairy, eggs and meat in the cold case.</div><div><span>✓</span> Pull expired items from the shelf and stockroom.</div><div><span>✓</span> Pay the supplier before the next order.</div></div>
     </div>`;
 }
-
 function renderPanel({ preserveScroll = false } = {}) {
   const oldScroll = panel.scrollTop;
   if (currentTab === 'overview') panel.innerHTML = overviewPanel();
@@ -445,6 +506,16 @@ document.addEventListener('click', (event) => {
       state.orderCases[productId] = 1;
     } else notify(result.reason === 'insufficient-funds' ? `Short ${money(result.shortfall)}. Use the credit line or choose fewer cases.` : 'That order could not be placed.', 'danger');
   }
+  if (action === 'hire-purchasing-manager') {
+    const result = hirePurchasingManager(state);
+    notify(result.ok ? 'Rafael joined the team. Automatic purchasing is now active.' : result.reason === 'level-required' ? `Reach store level ${result.requiredLevel} to unlock Rafael.` : result.reason === 'insufficient-funds' ? `You need ${money(result.required)} in register cash to hire Rafael.` : 'Rafael is already on the team.', result.ok ? 'good' : 'info');
+  }
+  if (action === 'toggle-auto-purchase') {
+    const enabled = !state.automaticPurchasingEnabled;
+    setAutomaticPurchasing(state, enabled);
+    notify(enabled ? 'Rafael will resume checking stock needs.' : 'Automatic supplier orders paused.', 'info');
+  }
+
   if (action === 'borrow') {
     const result = borrowCredit(state, amount);
     notify(result.ok ? `${money(amount)} added to the register.` : `Only ${money(result.available || 0)} credit is available.`, result.ok ? 'good' : 'danger');
@@ -526,7 +597,7 @@ function frame(now) {
   recordNewEvents();
   if (now - lastHeaderRender > 160) { updateHeader(); lastHeaderRender = now; }
   if (now - lastPanelRender > 900) {
-    if (currentTab === 'overview' || (currentTab === 'shelves' && !$('#stock-search')?.matches(':focus'))) renderPanel({ preserveScroll: true });
+    if (currentTab === 'overview' || currentTab === 'staff' || currentTab === 'finance' || currentTab === 'orders' || (currentTab === 'shelves' && !$('#stock-search')?.matches(':focus'))) renderPanel({ preserveScroll: true });
     renderDaySummary();
     lastPanelRender = now;
   }

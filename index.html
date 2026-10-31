@@ -36,7 +36,7 @@
           <div class="scene-topline">
             <div class="scene-location"><span class="live-dot"></span><span>EL BARRIO · BROOKLYN, NY</span><span class="scene-divider">/</span><span id="shop-status">SHUTTERS DOWN</span></div>
             <div class="scene-tools">
-              <span class="scene-hint">DRAG TO LOOK AROUND</span>
+              <span class="scene-hint">DRAG TO LOOK · WASD TO WALK</span>
               <div class="speed-control" aria-label="Simulation speed">
                 <button data-speed="1" class="speed-button active">1×</button>
                 <button data-speed="2" class="speed-button">2×</button>
@@ -45,9 +45,29 @@
             </div>
           </div>
           <div id="world" aria-label="Three dimensional bodega interior"></div>
+          <div id="player-controls" class="player-controls hidden" aria-label="Move your store owner">
+            <span class="player-controls-label">MOVE · WASD / ARROWS</span>
+            <button type="button" data-player-move="up" aria-label="Walk forward">▲</button>
+            <div class="player-controls-row">
+              <button type="button" data-player-move="left" aria-label="Walk left">◀</button>
+              <span>YOU</span>
+              <button type="button" data-player-move="right" aria-label="Walk right">▶</button>
+            </div>
+            <button type="button" data-player-move="down" aria-label="Walk backward">▼</button>
+          </div>
           <div class="scene-bottomline">
             <div class="scene-caption"><span class="caption-mark">✳</span><span id="scene-caption">The coffee's on. The neighborhood is waking up.</span></div>
             <div class="scene-foot-meta"><span id="foot-customers">0 SHOPPERS INSIDE</span><span class="scene-divider">·</span><span id="foot-traffic">FOOTFALL STEADY</span><span class="scene-divider">·</span><span id="foot-staff">2 STAFF ON SHIFT</span></div>
+          </div>
+          <div id="loading-overlay" class="loading-overlay" role="status" aria-live="polite">
+            <div class="loading-card">
+              <div class="loading-eyebrow"><span class="live-dot"></span> BODEGA · CORNER STORE STORIES</div>
+              <div class="loading-emblem">✳</div>
+              <h2>Getting the shop ready.</h2>
+              <p id="loading-status">Warming the lights and opening the shop floor</p>
+              <div class="loading-progress-track"><i id="loading-progress-fill"></i></div>
+              <div class="loading-progress-row"><span>SETTING UP THE BLOCK</span><strong id="loading-percent">0%</strong></div>
+            </div>
           </div>
           <div id="start-overlay" class="start-overlay">
             <div class="opening-card">
@@ -56,7 +76,7 @@
               <p>Keep the shelves full, the milk cold, the books balanced, and the neighbors coming back. And please, for the love of the block, check those dates.</p>
               <div class="opening-details"><span><b>$1,250</b> starting cash</span><span><b>23</b> grocery staples</span><span><b>2</b> staff · <b>3</b> cats</span></div>
               <button id="open-store" class="primary-button opening-button">RAISE THE SHUTTERS <span>↗</span></button>
-              <div class="opening-note">A working store runs on working capital. Orders, wages, rent, and interest all come due.</div>
+              <div class="opening-note">A working store runs on working capital. Orders, wages, rent, and interest all come due.<br />Move with WASD or arrow keys · Hold Shift to hurry · Drag to look around.</div>
             </div>
           </div>
           <div id="day-summary" class="day-summary hidden"></div>

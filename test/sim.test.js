@@ -5,6 +5,7 @@ import {
   oldestShelfBatch, sellFromShelf, borrowCredit, repayCredit, advanceGame,
   beginDay, startNextDay, adjustPrice, PRODUCT_BY_ID, saveGameState, loadGameState,
   REVIEW_BANK, maybeLeaveReview, customerArrivalInterval, trafficLabel, reviewSummary,
+  PURCHASING_MANAGER, getStoreLevel, getStoreLevelProgress, hirePurchasingManager, setAutomaticPurchasing,
 } from '../src/sim.js';
 
 function prepareState() {
@@ -135,7 +136,7 @@ test('a shopper gets angry when the front-facing batch is expired', () => {
   const state = prepareState();
   state.shelves.bananas[0].expiresAt = productNow(state) - 0.01;
   state.nextArrival = 100000;
-  state.customers.push({ id: 999, character: 'neighbour', name: 'Mrs. Russo', tag: 'regular', demandId: 'bananas', basket: [{ productId: 'bananas', qty: 1 }, { productId: 'milk', qty: 1 }], phase: 'browsing', phaseTotal: 0.04, phaseTimer: 0.04, result: null, bought: 0, spend: 0 });
+  state.customers.push({ id: 999, character: 'artist', name: 'Mrs. Russo', tag: 'regular', demandId: 'bananas', basket: [{ productId: 'bananas', qty: 1 }, { productId: 'milk', qty: 1 }], phase: 'browsing', phaseTotal: 0.04, phaseTimer: 0.04, result: null, bought: 0, spend: 0 });
   advanceGame(state, 0.05);
   assert.equal(state.dayStats.complaints, 1);
   assert.equal(state.customers[0].result, 'expired');
@@ -161,7 +162,7 @@ test('customers shop with multi-line baskets and can complete valid lines after 
   const state = prepareState();
   state.shelves.bananas[0].expiresAt = productNow(state) - 0.01;
   const cash = state.cash;
-  const customer = { id: 1000, character: 'neighbour', name: 'Mr. Delgado', tag: 'regular', demandId: 'bananas', basket: [{ productId: 'bananas', qty: 1 }, { productId: 'milk', qty: 2 }], phase: 'browsing', phaseTotal: 0.04, phaseTimer: 0.04, result: null, bought: 0, spend: 0 };
+  const customer = { id: 1000, character: 'artist', name: 'Mr. Delgado', tag: 'regular', demandId: 'bananas', basket: [{ productId: 'bananas', qty: 1 }, { productId: 'milk', qty: 2 }], phase: 'browsing', phaseTotal: 0.04, phaseTimer: 0.04, result: null, bought: 0, spend: 0 };
   state.nextArrival = 100000;
   state.customers.push(customer);
   advanceGame(state, 0.05);
@@ -219,7 +220,7 @@ test('expired-item complaints turn into a review when the unhappy shopper leaves
   state.shelves.bananas[0].expiresAt = productNow(state) - 0.01;
   state.nextArrival = 100000;
   const customer = {
-    id: 1003, character: 'neighbour', name: 'Mr. Delgado', tag: 'regular',
+    id: 1003, character: 'artist', name: 'Mr. Delgado', tag: 'regular',
     demandId: 'bananas', basket: [{ productId: 'bananas', qty: 1 }],
     phase: 'browsing', phaseTotal: 0.04, phaseTimer: 0.04, result: null, bought: 0, spend: 0,
   };
@@ -228,8 +229,8 @@ test('expired-item complaints turn into a review when the unhappy shopper leaves
   advanceGame(state, 0.05);
   assert.equal(customer.result, 'expired');
   assert.ok(state.reputation < startingTrust);
-  advanceGame(state, 1.8);
-  advanceGame(state, 3);
+  advanceGame(state, 3.9);
+  advanceGame(state, 3.3);
   assert.equal(state.customers.length, 0);
   assert.equal(state.reviews[0].rating, 1);
   assert.match(state.reviews[0].text, /bananas/i);
@@ -338,7 +339,7 @@ test('a requested quantity that exceeds shelf stock is counted as a partial bask
   state.shelves.apples = [{ lotId: 50001, qty: 2, receivedAt: productNow(state), expiresAt: productNow(state) + 5, unitCost: PRODUCT_BY_ID.apples.cost }];
   state.nextArrival = 100000;
   const customer = {
-    id: 1401, character: 'neighbour', name: 'Mr. Delgado', demandId: 'apples', basket: [{ productId: 'apples', qty: 4 }],
+    id: 1401, character: 'artist', name: 'Mr. Delgado', demandId: 'apples', basket: [{ productId: 'apples', qty: 4 }],
     phase: 'browsing', phaseTotal: 0.04, phaseTimer: 0.04, result: null, bought: 0, spend: 0,
   };
   state.customers.push(customer);
@@ -362,4 +363,93 @@ test('food-safety reviews take precedence when the same visit also has a cat enc
   assert.match(review.text, /whole milk/i);
   assert.doesNotMatch(review.text, /Nyx/);
   assert.ok(state.reputation < before);
+});
+
+
+
+test('purchasing manager stays locked until the store reaches Level 5', () => {
+  const state = prepareState();
+  const result = hirePurchasingManager(state);
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'level-required');
+  assert.equal(result.requiredLevel, 5);
+  state.experience = 999;
+  assert.equal(getStoreLevel(state), 4);
+  assert.equal(hirePurchasingManager(state).reason, 'level-required');
+});
+
+test('store experience unlocks Level 5 and the experience bar reports progress', () => {
+  const state = createGameState(77);
+  state.experience = 999;
+  assert.equal(getStoreLevel(state), 4);
+  assert.equal(getStoreLevelProgress(state).remaining, 1);
+  state.experience = 1000;
+  assert.equal(getStoreLevel(state), 5);
+  assert.equal(getStoreLevelProgress(state).progress, 0);
+});
+
+test('hiring Rafael charges the recruitment cost and adds his daily wage to payroll', () => {
+  const state = prepareState();
+  state.experience = 1000;
+  state.cash = 800;
+  const before = state.cash;
+  const result = hirePurchasingManager(state);
+  assert.equal(result.ok, true);
+  assert.equal(result.hireCost, PURCHASING_MANAGER.hireCost);
+  assert.equal(state.cash, before - PURCHASING_MANAGER.hireCost);
+  assert.equal(state.purchasingManagerHired, true);
+  assert.equal(state.automaticPurchasingEnabled, true);
+  assert.equal(state.dailyCosts.payroll, 44);
+  assert.equal(hirePurchasingManager(state).reason, 'already-hired');
+});
+
+test('Rafael automatically orders a needed case from cash, not borrowed credit', () => {
+  const state = prepareState();
+  state.experience = 1000;
+  state.cash = 900;
+  assert.equal(hirePurchasingManager(state).ok, true);
+  state.shelves.bananas = [];
+  state.stockroom.bananas = [];
+  const cashBeforeOrder = state.cash;
+  const debtBeforeOrder = state.debt;
+  state.nextAutoOrderAt = state.minute;
+  advanceGame(state, 0.2);
+  const backroomQty = state.stockroom.bananas.reduce((sum, batch) => sum + batch.qty, 0);
+  assert.ok(backroomQty >= PRODUCT_BY_ID.bananas.caseSize);
+  assert.ok(state.cash < cashBeforeOrder);
+  assert.equal(state.debt, debtBeforeOrder);
+  assert.ok(state.events.some((event) => event.type === 'staff' && /Rafael Ortiz ordered/.test(event.message)));
+});
+
+test('Rafael protects the cash reserve and can pause automatic purchasing', () => {
+  const state = prepareState();
+  state.experience = 1000;
+  state.cash = 900;
+  assert.equal(hirePurchasingManager(state).ok, true);
+  state.shelves.milk = [];
+  state.stockroom.milk = [];
+  state.cash = PURCHASING_MANAGER.cashReserve + 1;
+  const cashAtReserve = state.cash;
+  state.nextAutoOrderAt = state.minute;
+  advanceGame(state, 0.2);
+  assert.equal(state.stockroom.milk.reduce((sum, batch) => sum + batch.qty, 0), 0);
+  assert.equal(state.cash, cashAtReserve);
+  assert.equal(state.debt, 0);
+  assert.equal(setAutomaticPurchasing(state, false), true);
+  assert.equal(state.automaticPurchasingEnabled, false);
+  assert.ok(state.events.some((event) => event.type === 'staff' && /Automatic purchasing paused/.test(event.message)));
+});
+
+test('player position, store level and manager status survive saving and migration', () => {
+  const state = prepareState();
+  state.playerPosition = { x: -2.4, z: 1.8 };
+  state.experience = 725;
+  state.purchasingManagerHired = true;
+  state.automaticPurchasingEnabled = false;
+  const restored = loadGameState(saveGameState(state));
+  assert.deepEqual(restored.playerPosition, { x: -2.4, z: 1.8 });
+  assert.equal(restored.experience, 725);
+  assert.equal(restored.purchasingManagerHired, true);
+  assert.equal(restored.automaticPurchasingEnabled, false);
+  assert.equal(restored.dailyCosts.payroll, 44);
 });

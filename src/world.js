@@ -2,6 +2,8 @@ import * as GFX from 'madness-engine/gfx';
 import { createStage } from 'madness-engine/stage';
 import { createView } from 'madness-engine/view';
 import { createModel } from 'madness-engine/models/model';
+import { cloth, person } from 'madness-engine/characters/person';
+import purchasingSuit from 'madness-engine/characters/suit';
 import { floorTexture, wallTexture } from 'madness-engine/textures/venue';
 import { paintRoom } from 'madness-engine/textures/rooms/town';
 import { paintSky } from 'madness-engine/textures/skies/haze';
@@ -10,7 +12,7 @@ import vendor from 'madness-engine/characters/vendor';
 import tourist from 'madness-engine/characters/tourist';
 import punk from 'madness-engine/characters/punk';
 import hippie from 'madness-engine/characters/hippie';
-import neighbour from 'madness-engine/characters/neighbour';
+import artist from 'madness-engine/characters/artist';
 import hipster from 'madness-engine/characters/hipster';
 import cabbie from 'madness-engine/characters/cabbie';
 import nonna from 'madness-engine/characters/nonna';
@@ -21,20 +23,233 @@ import skater from 'madness-engine/characters/skater';
 import { CAT_DEFS } from 'madness-engine/characters/cat';
 import { PRODUCTS, CAT_ROSTER, STAFF, PRODUCT_BY_ID, shelfQuantity } from './sim.js';
 
-const CUSTOMER_MODELS = { tourist, punk, hippie, neighbour, hipster, cabbie, nonna, beerguy, salaryman, pizzaiolo, skater };
-const EXIT = [4.6, 0, 6.2];
-const CHECKOUT = [6.4, 0, 3.45];
+const CUSTOMER_MODELS = { tourist, punk, hippie, artist, hipster, cabbie, nonna, beerguy, salaryman, pizzaiolo, skater };
+const OWNER_CHARACTER = person({
+  name: 'bodega-owner',
+  scale: 1.44,
+  b: 0.98,
+  shape: { legs: 1.02, torso: 1.0, head: 1.0, girth: 0.98 },
+  skin: '#d5a17f',
+  look: {
+    torso: cloth('#72907d', '#415c4d'),
+    sleeve: cloth('#72907d', '#415c4d'),
+    cuff: '#d5a17f',
+    legs: cloth('#354b61', '#202f40'),
+    boot: '#49413a',
+    sole: '#242326',
+  },
+  mats: { torso: 'cloth', sleeve: 'cloth', cuff: 'skin', legs: 'denim', boot: 'leather' },
+  face: { eyeColor: '#3d3028', brow: '#38271e', mood: 0 },
+  hair: { color: cloth('#30231c', '#17110d'), locks: [[[0, 0.785, 0.05], [0, 0.8, 0.12], 0.035], [[0.05, 0.77, 0.0], [0.09, 0.72, -0.03], 0.03], [[-0.05, 0.77, 0.0], [-0.09, 0.72, -0.03], 0.03]] },
+});
+const PLAYER_HOME = [0.35, 0, 5.15];
+const PLAYER_SPEED = 2.25;
+
+const EXIT = [4.6, 0, 5.8];
+const CHECKOUT = [4.05, 0, 4.65];
+const BACKROOM = [-6.3, 0, 4.55];
+const HUMAN_HEIGHT = 1.42;
+const CAT_HEIGHT = 0.31;
+
+// Store fixtures are separated into distinct islands with a broad circulation
+// spine and a usable cross-aisle. Product anchors sit beside, never inside, them.
 const DISPLAY = {
   apples: [-7.1, 0, -4.8], bananas: [-5.55, 0, -4.8], tomatoes: [-7.1, 0, -3.3], lettuce: [-5.55, 0, -3.3], potatoes: [-6.3, 0, -1.8],
   bread: [-6.3, 0, 0.45],
-  rice: [-3.8, 0, -4.65], pasta: [-1.75, 0, -4.65], cereal: [0.3, 0, -4.65], beans: [-3.8, 0, -2.55], coffee: [-1.75, 0, -2.55],
-  milk: [5.35, 0, -4.8], yogurt: [7.0, 0, -4.8], cheese: [5.35, 0, -3.4], butter: [7.0, 0, -3.4], eggs: [5.35, 0, -2.0], chicken: [7.0, 0, -2.0], beef: [5.35, 0, -0.6], deli: [7.0, 0, -0.6],
-  soda: [1.85, 0, -4.8], water: [3.55, 0, -4.8], pizza: [1.85, 0, -3.0], icecream: [3.55, 0, -3.0],
+  rice: [-3.55, 0, -4.55], pasta: [-1.95, 0, -4.55], cereal: [-0.35, 0, -4.55], beans: [-3.2, 0, -1.35], coffee: [-1.55, 0, -1.35],
+  milk: [6.15, 0, -4.8], yogurt: [7.5, 0, -4.8], cheese: [6.15, 0, -3.4], butter: [7.5, 0, -3.4], eggs: [6.15, 0, -2.0], chicken: [7.5, 0, -2.0], beef: [6.15, 0, -0.6], deli: [7.5, 0, -0.6],
+  soda: [1.85, 0, -4.8], water: [3.15, 0, -4.8], pizza: [1.85, 0, -3.2], icecream: [3.15, 0, -3.2],
 };
 const GROUP_TARGET = {
-  produce: [-6.35, 0, -3.35], bakery: [-6.2, 0, 0.5], dry: [-2.65, 0, -3.15],
-  chilled: [6.2, 0, -2.55], drinks: [2.8, 0, -4.5], frozen: [2.8, 0, -2.85],
+  produce: [-4.3, 0, -3.45], bakery: [-4.35, 0, 0.6], dry: [0.55, 0, -3.0],
+  chilled: [4.65, 0, -2.55], drinks: [2.5, 0, -2.42], frozen: [2.5, 0, -2.42],
 };
+
+// Navigation uses inflated fixture footprints so a shopper has room for their
+// shoulders and shopping basket. The same graph drives shoppers, staff and cats.
+const NAV = { minX: -8.3, maxX: 8.3, minZ: -6.25, maxZ: 6.2, step: 0.3, clearance: 0.34 };
+const NAV_BLOCKERS = [
+  ...[[-7.1,-4.8],[-5.55,-4.8],[-7.1,-3.3],[-5.55,-3.3],[-6.3,-1.8]].map(([x,z])=>({x,z,w:1.28,d:1.08})),
+  { x:-6.3, z:0.45, w:2.67, d:1.14 }, // bakery table
+  { x:-2.0, z:-4.55, w:3.9, d:1.22 }, // dry-goods bay A
+  { x:-2.0, z:-1.35, w:3.9, d:1.22 }, // dry-goods bay B
+  { x:2.5, z:-4.0, w:2.1, d:2.25 }, // drinks / freezer island
+  { x:7.0, z:-2.75, w:2.6, d:4.55 }, // refrigerated wall
+  { x:6.3, z:3.42, w:3.47, d:1.58 }, // checkout counter
+  { x:-8.05, z:1.75, w:0.72, d:0.55 }, // newspaper rack
+  { x:-7.75, z:4.85, w:1.2, d:1.15 }, // receiving nook
+];
+
+function normalizeActorHeight(model, targetHeight) {
+  const geometry = model.mesh.geometry;
+  geometry.computeBoundingBox();
+  const bounds = geometry.boundingBox;
+  const meshScaleY = model.mesh.scale.y || 1;
+  const currentHeight = Math.max(0.001, (bounds.max.y - bounds.min.y) * meshScaleY);
+  const fit = targetHeight / currentHeight;
+  model.group.scale.setScalar(fit);
+  return -bounds.min.y * meshScaleY * fit;
+}
+
+function navBlocked(x, z) {
+  if (x < NAV.minX || x > NAV.maxX || z < NAV.minZ || z > NAV.maxZ) return true;
+  const r = NAV.clearance;
+  return NAV_BLOCKERS.some((b) =>
+    x >= b.x - b.w / 2 - r && x <= b.x + b.w / 2 + r &&
+    z >= b.z - b.d / 2 - r && z <= b.z + b.d / 2 + r
+  );
+}
+
+function nearestWalkable(x, z) {
+  const ix = Math.round((x - NAV.minX) / NAV.step);
+  const iz = Math.round((z - NAV.minZ) / NAV.step);
+  for (let radius = 0; radius <= 12; radius++) {
+    for (let dx = -radius; dx <= radius; dx++) for (let dz = -radius; dz <= radius; dz++) {
+      if (Math.max(Math.abs(dx), Math.abs(dz)) !== radius) continue;
+      const gx = NAV.minX + (ix + dx) * NAV.step;
+      const gz = NAV.minZ + (iz + dz) * NAV.step;
+      if (!navBlocked(gx, gz)) return { ix: ix + dx, iz: iz + dz, x: gx, z: gz };
+    }
+  }
+  return { ix, iz, x, z };
+}
+
+function heapPush(heap, item) {
+  let i = heap.length;
+  heap.push(item);
+  while (i > 0) {
+    const parent = (i - 1) >> 1;
+    if (heap[parent].f <= item.f) break;
+    heap[i] = heap[parent]; i = parent;
+  }
+  heap[i] = item;
+}
+
+function heapPop(heap) {
+  const first = heap[0];
+  const last = heap.pop();
+  if (heap.length) {
+    let i = 0;
+    while (true) {
+      let child = i * 2 + 1;
+      if (child >= heap.length) break;
+      if (child + 1 < heap.length && heap[child + 1].f < heap[child].f) child++;
+      if (heap[child].f >= last.f) break;
+      heap[i] = heap[child]; i = child;
+    }
+    heap[i] = last;
+  }
+  return first;
+}
+
+function gridKey(ix, iz) { return `${ix},${iz}`; }
+function gridWorld(ix, iz) { return [NAV.minX + ix * NAV.step, 0, NAV.minZ + iz * NAV.step]; }
+
+function segmentClear(a, b) {
+  const dx = b[0] - a[0], dz = b[2] - a[2];
+  const distance = Math.hypot(dx, dz);
+  const samples = Math.max(2, Math.ceil(distance / 0.16));
+  for (let i = 1; i < samples; i++) {
+    const t = i / samples;
+    if (navBlocked(a[0] + dx * t, a[2] + dz * t)) return false;
+  }
+  return true;
+}
+
+function findWalkPath(start, end) {
+  const source = nearestWalkable(start[0], start[2]);
+  const target = nearestWalkable(end[0], end[2]);
+  const startKey = gridKey(source.ix, source.iz), targetKey = gridKey(target.ix, target.iz);
+  const open = [];
+  const previous = new Map();
+  const score = new Map([[startKey, 0]]);
+  const closed = new Set();
+  const heuristic = (x,z) => Math.hypot(target.ix - x, target.iz - z);
+  heapPush(open, { ix: source.ix, iz: source.iz, key: startKey, g: 0, f: heuristic(source.ix,source.iz) });
+  const directions = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+  let found = false, iterations = 0;
+  while (open.length && iterations++ < 6000) {
+    const node = heapPop(open);
+    if (closed.has(node.key)) continue;
+    if (node.key === targetKey) { found = true; break; }
+    closed.add(node.key);
+    for (const [dx,dz] of directions) {
+      const ix=node.ix+dx, iz=node.iz+dz, point=gridWorld(ix,iz), key=gridKey(ix,iz);
+      if (closed.has(key) || navBlocked(point[0],point[2])) continue;
+      if (dx && dz && (navBlocked(gridWorld(node.ix+dx,node.iz)[0],gridWorld(node.ix+dx,node.iz)[2]) || navBlocked(gridWorld(node.ix,node.iz+dz)[0],gridWorld(node.ix,node.iz+dz)[2]))) continue;
+      const g = node.g + (dx && dz ? 1.4142 : 1);
+      if (g >= (score.get(key) ?? Infinity)) continue;
+      score.set(key,g); previous.set(key,node.key);
+      heapPush(open,{ix,iz,key,g,f:g+heuristic(ix,iz)});
+    }
+  }
+  if (!found) return [[...start],[...end]];
+  const cells = [];
+  let cursor = targetKey;
+  while (cursor) {
+    const [ix,iz]=cursor.split(',').map(Number);
+    cells.push(gridWorld(ix,iz));
+    if (cursor===startKey) break;
+    cursor=previous.get(cursor);
+  }
+  cells.reverse();
+  const raw = [[start[0],0,start[2]], ...cells, [end[0],0,end[2]]];
+  const deduped = raw.filter((p,i,a)=>i===0||Math.hypot(p[0]-a[i-1][0],p[2]-a[i-1][2])>0.12);
+  const smooth = [deduped[0]];
+  let at=0;
+  while (at<deduped.length-1) {
+    let next=at+1;
+    for(let candidate=deduped.length-1;candidate>at+1;candidate--) {
+      if(segmentClear(deduped[at],deduped[candidate])) { next=candidate; break; }
+    }
+    smooth.push(deduped[next]); at=next;
+  }
+  return smooth;
+}
+
+function planWalkRoute(start, stops) {
+  let current=[start[0],0,start[2]], route=[current];
+  for (const stop of stops) {
+    const segment=findWalkPath(current,stop);
+    route.push(...segment.slice(1));
+    current=route[route.length-1];
+  }
+  return route.length>1?route:[current,[...current]];
+}
+
+function routeLength(route) {
+  let length=0;
+  for(let i=1;i<route.length;i++) length+=Math.hypot(route[i][0]-route[i-1][0],route[i][2]-route[i-1][2]);
+  return length;
+}
+
+function pointOnRoute(route, progress) {
+  if (!route?.length) return [0,0,0];
+  const total=routeLength(route);
+  if (total<1e-5) return [...route[route.length-1]];
+  let remaining=Math.max(0,Math.min(1,progress))*total;
+  for(let i=1;i<route.length;i++) {
+    const a=route[i-1],b=route[i];
+    const length=Math.hypot(b[0]-a[0],b[2]-a[2]);
+    if(remaining<=length||i===route.length-1) {
+      const t=length>1e-5?Math.max(0,Math.min(1,remaining/length)):1;
+      return [a[0]+(b[0]-a[0])*t,0,a[2]+(b[2]-a[2])*t];
+    }
+    remaining-=length;
+  }
+  return [...route[route.length-1]];
+}
+
+function faceAlong(group, from, to) {
+  const dx=to[0]-from[0], dz=to[2]-from[2];
+  if(Math.hypot(dx,dz)>0.02) group.rotation.y=Math.atan2(dx,dz);
+}
+
+const CAT_PATROLS = [
+  [[-4.25,-5.65],[-4.25,-2.3],[-4.25,1.0],[-4.25,4.8],[0.55,4.8],[0.55,1.7],[0.55,-2.5],[0.55,-5.7]],
+  [[0.55,4.8],[0.55,1.7],[0.55,-2.5],[0.55,-5.7],[2.5,-5.7],[4.65,-5.7],[4.65,-2.5],[4.65,1.7],[4.65,4.8]],
+  [[4.65,4.8],[4.65,1.7],[4.65,-2.5],[4.65,-5.7],[2.5,-5.7],[0.55,-5.7],[0.55,-2.5],[0.55,1.7],[0.55,4.8]],
+];
 
 function makeSignTexture(text, { background = '#14252a', foreground = '#f4e8ce', accent = '#df674b', width = 512, height = 128, fontSize = 60 } = {}) {
   const canvas = document.createElement('canvas');
@@ -57,7 +272,8 @@ function labelTexture(text, small = false) {
   });
 }
 
-export async function createBodegaWorld(host) {
+export async function createBodegaWorld(host, onProgress = () => {}) {
+  onProgress('Opening the shop floor', 5);
   const view = createView({ yaw: 0.03, pitch: 0.77, zoom: 1.0 });
   const stage = await createStage(host, {
     label: 'bodega',
@@ -75,6 +291,7 @@ export async function createBodegaWorld(host) {
     pixelRatio: 1.75,
   });
   const { scene } = stage;
+  onProgress('Building the neighborhood store', 20);
   const mats = {
     dark: new GFX.MeshStandardMaterial({ color: '#222d31', roughness: 0.74 }),
     wood: new GFX.MeshStandardMaterial({ color: '#9b6840', roughness: 0.82 }),
@@ -202,31 +419,31 @@ export async function createBodegaWorld(host) {
     }
     for (const y of [0.38, 1.02, 1.66]) box(scene, x, y, z - 0.01, width, 0.09, 0.06, mats.trim);
   }
-  gondola(-2.55, -1.62, 5.8);
-  gondola(2.3, -1.62, 3.5);
+  gondola(-2.0, -4.55, 3.9);
+  gondola(-2.0, -1.35, 3.9);
   const groceryHeader = new GFX.Mesh(new GFX.PlaneGeometry(3.3, 0.48), new GFX.MeshBasicMaterial({ map: makeSignTexture('PANTRY & DRY GOODS', { background: '#33464c', foreground: '#f4e9d1', accent: '#d16f53', fontSize: 40, height: 96 }), side: GFX.DoubleSide }));
-  groceryHeader.position.set(-2.55, 2.22, -1.99); scene.add(groceryHeader);
+  groceryHeader.position.set(-2.0, 2.22, -2.05); scene.add(groceryHeader);
 
   // Refrigerated wall: compressor plinth, glass doors, aluminium dividers and chilled shelves.
-  box(scene, 6.15, 0.16, -2.75, 3.85, 0.3, 4.55, mats.steelDark);
-  box(scene, 6.15, 2.22, -4.93, 3.85, 0.22, 0.16, mats.metal);
-  box(scene, 6.15, 1.14, -0.54, 3.85, 0.2, 0.16, mats.metal);
-  box(scene, 6.15, 1.21, -2.76, 3.7, 1.9, 0.08, mats.glass, { castShadow: false });
-  for (const x of [4.28, 6.15, 8.02]) box(scene, x, 1.23, -2.76, 0.065, 2.0, 0.12, mats.metal);
-  for (const z of [-4.15, -2.72, -1.28]) box(scene, 6.15, 0.78, z, 3.72, 0.075, 0.08, mats.trim);
-  for (const x of [4.5, 5.75, 7.05, 7.8]) {
+  box(scene, 7.0, 0.16, -2.75, 2.6, 0.3, 4.55, mats.steelDark);
+  box(scene, 7.0, 2.22, -4.93, 2.6, 0.22, 0.16, mats.metal);
+  box(scene, 7.0, 1.14, -0.54, 2.6, 0.2, 0.16, mats.metal);
+  box(scene, 7.0, 1.21, -2.76, 2.5, 1.9, 0.08, mats.glass, { castShadow: false });
+  for (const x of [5.76, 7.0, 8.24]) box(scene, x, 1.23, -2.76, 0.065, 2.0, 0.12, mats.metal);
+  for (const z of [-4.15, -2.72, -1.28]) box(scene, 7.0, 0.78, z, 2.52, 0.075, 0.08, mats.trim);
+  for (const x of [5.95, 6.65, 7.35, 8.05]) {
     const lamp = new GFX.PointLight('#b8e7f0', 5.5, 3.8, 1.6); lamp.position.set(x, 2.1, -2.7); scene.add(lamp);
   }
   const coldLabel = new GFX.Mesh(new GFX.PlaneGeometry(3.3, 0.42), new GFX.MeshBasicMaterial({ map: makeSignTexture('MILK · EGGS · MEAT', { background: '#38545a', foreground: '#eef3e5', accent: '#b3d9d2', fontSize: 35, height: 96 }), side: GFX.DoubleSide }));
-  coldLabel.position.set(6.15, 2.45, -4.82); scene.add(coldLabel);
+  coldLabel.position.set(7.0, 2.45, -4.82); scene.add(coldLabel);
 
   // Beverage and freezer island at the far right of the centre aisle.
-  box(scene, 2.72, 0.19, -4.0, 3.85, 0.32, 1.45, mats.steelDark);
-  box(scene, 2.72, 0.64, -4.0, 3.85, 0.1, 1.42, mats.metal);
-  box(scene, 2.72, 1.2, -4.0, 3.85, 0.12, 1.4, mats.metal);
-  box(scene, 2.72, 1.76, -4.0, 3.85, 0.12, 1.4, mats.metal);
+  box(scene, 2.5, 0.19, -4.0, 2.1, 0.32, 2.25, mats.steelDark);
+  box(scene, 2.5, 0.64, -4.0, 2.1, 0.1, 2.2, mats.metal);
+  box(scene, 2.5, 1.2, -4.0, 2.1, 0.12, 2.16, mats.metal);
+  box(scene, 2.5, 1.76, -4.0, 2.1, 0.12, 2.12, mats.metal);
   const chilledHeader = new GFX.Mesh(new GFX.PlaneGeometry(2.9, 0.4), new GFX.MeshBasicMaterial({ map: makeSignTexture('COLD DRINKS · FROZEN', { background: '#31515b', foreground: '#f1eee0', accent: '#8ec6d6', fontSize: 34, height: 96 }), side: GFX.DoubleSide }));
-  chilledHeader.position.set(2.72, 2.07, -4.69); scene.add(chilledHeader);
+  chilledHeader.position.set(2.5, 2.07, -4.0); scene.add(chilledHeader);
 
   // Checkout is built as a substantial counter, card terminal, register and gum display.
   box(scene, 6.3, 0.56, 3.42, 3.35, 1.12, 1.48, mats.wood);
@@ -243,6 +460,13 @@ export async function createBodegaWorld(host) {
   const cashierSign = new GFX.Mesh(new GFX.PlaneGeometry(1.7, 0.34), new GFX.MeshBasicMaterial({ map: makeSignTexture('NEXT PLEASE', { background: '#354b47', foreground: '#f0e7cf', accent: '#d9a55f', fontSize: 34, height: 96 }), side: GFX.DoubleSide }));
   cashierSign.position.set(6.3, 1.68, 4.2); scene.add(cashierSign);
 
+  // A compact receiving nook gives deliveries a physical home before Marisol takes them out.
+  box(scene, -7.75, 0.42, 4.85, 1.15, 0.82, 1.1, mats.wood);
+  box(scene, -7.75, 0.88, 4.85, 1.2, 0.1, 1.14, mats.woodLight);
+  box(scene, -7.75, 1.33, 4.85, 1.1, 0.78, 1.05, mats.wood);
+  const stockroomLabel = new GFX.Mesh(new GFX.PlaneGeometry(1.0, 0.28), new GFX.MeshBasicMaterial({ map: makeSignTexture('RECEIVING', { background: '#3d5148', foreground: '#f4e9d1', accent: '#d6b578', fontSize: 29, height: 96 }), side: GFX.DoubleSide }));
+  stockroomLabel.position.set(-7.75, 1.78, 4.28); scene.add(stockroomLabel);
+
   // Small comforts: a newspaper rack, coffee station, trash bin, milk crate and hand trolley.
   box(scene, -8.05, 0.42, 1.75, 0.62, 0.82, 0.45, mats.dark);
   for (let k = 0; k < 5; k++) box(scene, -8.05, 0.57 + k * 0.03, 1.75 - k * 0.012, 0.52, 0.22, 0.015, mats.chalk, { rotation: [0.09, 0, (k - 2) * 0.035] });
@@ -253,6 +477,7 @@ export async function createBodegaWorld(host) {
   box(scene, -7.95, 0.44, -0.5, 0.68, 0.08, 0.6, mats.woodLight);
 
   // Product sign rails and the merchandise itself. Every shelf count is reflected in the scene.
+  onProgress('Filling the grocery shelves', 53);
   const displayGroups = new Map();
   const productMaterials = new Map();
   function merchandiseMaterial(product) {
@@ -317,39 +542,132 @@ export async function createBodegaWorld(host) {
     displayGroups.set(product.id, { group: display, packs, shelfLabel, product });
   }
 
+  onProgress('Bringing the staff and bodega cats in', 72);
   // Employee models are actual sculpted engine characters, with a distinct job and a home position.
   const staffModels = [];
   const lou = createModel(GFX, gent, { detail: 0.75 });
-  lou.group.position.set(6.95, 0, 2.25); lou.group.rotation.y = -0.18; scene.add(lou.group);
-  staffModels.push({ model: lou, character: 'gent', name: STAFF[0].name, time: 0, home: [6.95, 0, 2.25] });
+  const louFloor = normalizeActorHeight(lou, HUMAN_HEIGHT);
+  const louHome = [6.95, louFloor, 2.15];
+  lou.group.position.set(...louHome); lou.group.rotation.y = -0.18; scene.add(lou.group);
+  staffModels.push({ model: lou, character: 'gent', name: STAFF[0].name, time: 0, home: louHome, poseAccumulator: 0 });
   const marisol = createModel(GFX, vendor, { detail: 0.75 });
-  marisol.group.position.set(-4.6, 0, -0.35); marisol.group.rotation.y = 0.8; scene.add(marisol.group);
-  staffModels.push({ model: marisol, character: 'vendor', name: STAFF[1].name, time: 1.5, home: [-4.6, 0, -0.35] });
+  const marisolFloor = normalizeActorHeight(marisol, HUMAN_HEIGHT);
+  const marisolHome = [BACKROOM[0], marisolFloor, BACKROOM[2] - 0.35];
+  marisol.group.position.set(...marisolHome); marisol.group.rotation.y = -Math.PI / 2; scene.add(marisol.group);
+  staffModels.push({ model: marisol, character: 'vendor', name: STAFF[1].name, time: 1.5, home: marisolHome, poseAccumulator: 0, route: [marisolHome], routeStage: 'idle' });
 
-  // The cats are the most senior members of staff. Each coat comes from the engine's cat sculpt library.
+  const playerModel = createModel(GFX, OWNER_CHARACTER, { detail: 0.85 });
+  const playerFloor = normalizeActorHeight(playerModel, HUMAN_HEIGHT);
+  const savedPlayer = window.__bodegaState?.playerPosition ?? { x: PLAYER_HOME[0], z: PLAYER_HOME[2] };
+  const player = { model: playerModel, floor: playerFloor, x: savedPlayer.x, z: savedPlayer.z, time: 0, poseAccumulator: 0, facing: 0 };
+  playerModel.group.position.set(player.x, playerFloor, player.z);
+  scene.add(playerModel.group);
+  const ownerTag = new GFX.Mesh(
+    new GFX.PlaneGeometry(0.92, 0.22),
+    new GFX.MeshBasicMaterial({ map: makeSignTexture('STORE OWNER', { background: '#355746', foreground: '#f5edd8', accent: '#9fbd8b', width: 256, height: 96, fontSize: 32 }), transparent: true, side: GFX.DoubleSide, depthTest: false, depthWrite: false }),
+  );
+  ownerTag.renderOrder = 25;
+  scene.add(ownerTag);
+  const playerKeys = new Set();
+  const keyDirections = {
+    KeyW: 'up', ArrowUp: 'up',
+    KeyS: 'down', ArrowDown: 'down',
+    KeyA: 'left', ArrowLeft: 'left',
+    KeyD: 'right', ArrowRight: 'right',
+  };
+  const editableTarget = () => {
+    const el = document.activeElement;
+    return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+  };
+  const onKeyDown = (event) => {
+    const direction = keyDirections[event.code];
+    if (!direction || editableTarget()) return;
+    playerKeys.add(direction);
+    if (event.shiftKey) playerKeys.add('run');
+    event.preventDefault();
+  };
+  const onKeyUp = (event) => {
+    const direction = keyDirections[event.code];
+    if (direction) playerKeys.delete(direction);
+    if (event.key === 'Shift') playerKeys.delete('run');
+  };
+  window.addEventListener('keydown', onKeyDown);
+  window.addEventListener('keyup', onKeyUp);
+  window.addEventListener('blur', () => playerKeys.clear());
+  document.querySelectorAll('[data-player-move]').forEach((button) => {
+    const direction = button.dataset.playerMove;
+    const down = (event) => { event.preventDefault(); playerKeys.add(direction); button.setPointerCapture?.(event.pointerId); };
+    const up = () => playerKeys.delete(direction);
+    button.addEventListener('pointerdown', down);
+    button.addEventListener('pointerup', up);
+    button.addEventListener('pointercancel', up);
+    button.addEventListener('lostpointercapture', up);
+    button.addEventListener('contextmenu', (event) => event.preventDefault());
+  });
+
+  // The purchasing manager is a regular, suited employee, created only after hiring.
+  const purchasingManagerModel = createModel(GFX, purchasingSuit, { detail: 0.75 });
+  const managerFloor = normalizeActorHeight(purchasingManagerModel, HUMAN_HEIGHT);
+  const managerHome = [-6.05, managerFloor, 3.05];
+  purchasingManagerModel.group.position.set(...managerHome);
+  purchasingManagerModel.group.visible = false;
+  scene.add(purchasingManagerModel.group);
+  const managerTag = new GFX.Mesh(
+    new GFX.PlaneGeometry(1.08, 0.22),
+    new GFX.MeshBasicMaterial({ map: makeSignTexture('RAFAEL · BUYING', { background: '#40516a', foreground: '#f3ead6', accent: '#d3b77d', width: 320, height: 96, fontSize: 30 }), transparent: true, side: GFX.DoubleSide, depthTest: false, depthWrite: false }),
+  );
+  managerTag.renderOrder = 24;
+  managerTag.visible = false;
+  scene.add(managerTag);
+  let managerTime = 0;
+  let managerPoseAccumulator = 0;
+  // Three true engine cats, fitted to house-cat dimensions and given separate roaming routes.
   const cats = CAT_ROSTER.map((cat, index) => {
     const model = createModel(GFX, CAT_DEFS[`cat-${cat.coat}`], { detail: 0.82 });
-    model.group.position.set(...cat.place);
+    const floor = normalizeActorHeight(model, CAT_HEIGHT);
+    const place = [cat.place[0], floor, cat.place[2]];
+    model.group.position.set(...place);
     model.group.rotation.y = index * 1.5;
     scene.add(model.group);
-    return { ...cat, model, time: index * 3.7 };
+    const stops = CAT_PATROLS[index].map(([x,z])=>[x,0,z]);
+    const route = planWalkRoute([place[0],0,place[2]], stops);
+    return { ...cat, model, place, time: index * 3.7, route, distance: 0, wait: 0.4 + index * 0.55, poseAccumulator: 0, patrolStops: stops, patrolIndex: 0 };
   });
 
   const customerActors = new Map();
-  function targetFor(customer) {
-    if (customer.phase === 'browsing') return GROUP_TARGET[PRODUCT_BY_ID[customer.demandId].section] ?? GROUP_TARGET.dry;
-    if (customer.phase === 'checkout') return CHECKOUT;
-    return EXIT;
+
+  function browseTargets(customer) {
+    const targets = [];
+    for (const line of customer.basket ?? [{ productId: customer.demandId }]) {
+      const section = PRODUCT_BY_ID[line.productId]?.section ?? 'dry';
+      const target = GROUP_TARGET[section] ?? GROUP_TARGET.dry;
+      if (!targets.length || Math.hypot(target[0]-targets[targets.length-1][0],target[2]-targets[targets.length-1][2])>0.5) targets.push(target);
+    }
+    return targets.length ? targets : [GROUP_TARGET.dry];
   }
+
+  function setCustomerRoute(actor, customer) {
+    const current = [actor.model.group.position.x, 0, actor.model.group.position.z];
+    if (customer.phase === 'browsing') {
+      actor.route = planWalkRoute(current, browseTargets(customer));
+      actor.routeFraction = 0.58; // arrive early enough to actually browse the last shelf
+    } else if (customer.phase === 'checkout') {
+      actor.route = planWalkRoute(current, [CHECKOUT]);
+      actor.routeFraction = 0.96;
+    } else {
+      actor.route = planWalkRoute(current, [EXIT]);
+      actor.routeFraction = 0.94;
+    }
+    actor.phase = customer.phase;
+  }
+
   function createCustomerActor(customer) {
     const def = CUSTOMER_MODELS[customer.character] ?? tourist;
     const model = createModel(GFX, def, { detail: 0.7 });
-    model.group.position.set(...EXIT);
-    model.group.rotation.y = Math.PI;
+    const floor = normalizeActorHeight(model, 1.38 + (customer.heightVariant ?? 1) * 0.06);
+    model.group.position.set(EXIT[0], floor, EXIT[2]);
     scene.add(model.group);
 
-    // A small billboard makes the random customer reaction visible in the shop.
-    // It is deliberately separate from the character rig and disposed on exit.
     let catBadge = null;
     if (customer.catReaction === 'delighted' || customer.catReaction === 'annoyed') {
       const delighted = customer.catReaction === 'delighted';
@@ -366,10 +684,12 @@ export async function createBodegaWorld(host) {
       catBadge.renderOrder = 20;
       scene.add(catBadge);
     }
-    const actor = { model, id: customer.id, catBadge, phase: customer.phase, from: [...EXIT], to: [...targetFor(customer)], time: customer.id * 0.7, poseAccumulator: 0 };
+    const actor = { model, id: customer.id, catBadge, phase: null, route: [EXIT], routeFraction: 0.58, time: customer.id * 0.7, poseAccumulator: 0, floor };
     customerActors.set(customer.id, actor);
+    setCustomerRoute(actor, customer);
     return actor;
   }
+
   function syncCustomers(state, dt) {
     const active = new Set(state.customers.map((c) => c.id));
     for (const [id, actor] of customerActors) {
@@ -381,35 +701,103 @@ export async function createBodegaWorld(host) {
           actor.catBadge.material.map?.dispose();
           actor.catBadge.material.dispose();
         }
+        actor.model.mesh.geometry.dispose();
+        for (const material of Array.isArray(actor.model.materials) ? actor.model.materials : [actor.model.materials]) material?.dispose?.();
         customerActors.delete(id);
       }
     }
     for (const customer of state.customers) {
       let actor = customerActors.get(customer.id);
       if (!actor) actor = createCustomerActor(customer);
-      if (actor.phase !== customer.phase) {
-        actor.from = [actor.model.group.position.x, actor.model.group.position.y, actor.model.group.position.z];
-        actor.to = [...targetFor(customer)];
-        actor.phase = customer.phase;
-      }
-      const progress = 1 - Math.max(0, customer.phaseTimer) / Math.max(0.01, customer.phaseTotal);
-      const smooth = progress * progress * (3 - 2 * progress);
-      actor.model.group.position.set(
-        actor.from[0] + (actor.to[0] - actor.from[0]) * smooth,
-        0,
-        actor.from[2] + (actor.to[2] - actor.from[2]) * smooth,
-      );
-      actor.model.group.rotation.y = customer.phase === 'leaving' ? Math.PI : 0;
+      if (actor.phase !== customer.phase) setCustomerRoute(actor, customer);
+      const elapsed = Math.max(0, customer.phaseTotal - customer.phaseTimer);
+      const moveDuration = Math.max(0.01, customer.phaseTotal * actor.routeFraction);
+      const progress = Math.min(1, elapsed / moveDuration);
+      const point = pointOnRoute(actor.route, progress);
+      const ahead = pointOnRoute(actor.route, Math.min(1, progress + 0.025));
+      actor.model.group.position.set(point[0], actor.floor, point[2]);
+      if (progress < 1) faceAlong(actor.model.group, point, ahead);
       if (actor.catBadge) {
-        actor.catBadge.position.set(actor.model.group.position.x, 1.48, actor.model.group.position.z);
+        actor.catBadge.position.set(point[0], actor.floor + 0.16, point[2]);
         actor.catBadge.quaternion.copy(stage.camera.quaternion);
         actor.catBadge.visible = customer.phase !== 'leaving';
       }
       actor.time += dt;
       actor.poseAccumulator += dt;
       if (actor.poseAccumulator >= 0.05) {
-        actor.model.pose({ clip: customer.phase === 'checkout' ? 'idle' : 'walk', t: actor.time, time: actor.time, seed: customer.id });
+        actor.model.pose({ clip: progress < 1 ? 'walk' : customer.phase === 'checkout' ? 'idle' : 'look', t: actor.time, time: actor.time, seed: customer.id });
         actor.poseAccumulator %= 0.05;
+      }
+    }
+  }
+
+  function updateStaff(state, dt) {
+    const floorLead = staffModels[1];
+    const task = state.staffWork ?? { stage: 'idle' };
+    const stage = task.stage ?? 'idle';
+    const section = PRODUCT_BY_ID[task.productId]?.section ?? 'dry';
+    const target = GROUP_TARGET[section] ?? GROUP_TARGET.dry;
+    if (floorLead.routeStage !== stage || floorLead.routeProduct !== task.productId) {
+      const current = [floorLead.model.group.position.x, 0, floorLead.model.group.position.z];
+      const destination = stage === 'walking-to-shelf' || stage === 'stocking' ? target : floorLead.home;
+      floorLead.route = planWalkRoute(current, [destination]);
+      floorLead.routeStage = stage;
+      floorLead.routeProduct = task.productId;
+    }
+    if (stage === 'walking-to-shelf' || stage === 'walking-back') {
+      const progress = Math.min(1, Math.max(0, 1 - task.timer / Math.max(0.01, task.duration)));
+      const point = pointOnRoute(floorLead.route, progress);
+      const ahead = pointOnRoute(floorLead.route, Math.min(1, progress + 0.035));
+      floorLead.model.group.position.set(point[0], floorLead.home[1], point[2]);
+      if (progress < 1) faceAlong(floorLead.model.group, point, ahead);
+    } else if (stage === 'stocking') {
+      const end = floorLead.route[floorLead.route.length - 1];
+      floorLead.model.group.position.set(end[0], floorLead.home[1], end[2]);
+    } else {
+      floorLead.model.group.position.set(...floorLead.home);
+    }
+    for (const worker of staffModels) {
+      worker.time += dt;
+      worker.poseAccumulator = (worker.poseAccumulator ?? 0) + dt;
+      if (worker.poseAccumulator >= 0.05) {
+        const moving = worker === floorLead && (stage === 'walking-to-shelf' || stage === 'walking-back');
+        worker.model.pose({ clip: moving ? 'walk' : 'idle', t: worker.time, time: worker.time, seed: worker.name.length });
+        worker.poseAccumulator %= 0.05;
+      }
+    }
+  }
+
+  function updateCats(dt) {
+    for (const cat of cats) {
+      cat.time += dt;
+      cat.poseAccumulator = (cat.poseAccumulator ?? 0) + dt;
+      const total = routeLength(cat.route);
+      if (cat.wait > 0) {
+        cat.wait -= dt;
+        if (cat.poseAccumulator >= 0.08) {
+          cat.model.pose({ clip: cat.wait > 1.2 ? 'sit' : 'look', t: cat.time, time: cat.time, seed: cat.time * 0.1, pace: 0.7 });
+          cat.poseAccumulator %= 0.08;
+        }
+        continue;
+      }
+      cat.distance += dt * (cat.id === 'nyx' ? 0.52 : 0.62);
+      const progress = total > 0 ? cat.distance / total : 1;
+      if (progress >= 1) {
+        cat.patrolIndex = (cat.patrolIndex + 1) % cat.patrolStops.length;
+        const current = [cat.model.group.position.x, 0, cat.model.group.position.z];
+        const nextStop = cat.patrolStops[cat.patrolIndex];
+        cat.route = findWalkPath(current, nextStop);
+        cat.distance = 0;
+        cat.wait = 1.8 + ((cat.patrolIndex + cat.id.length) % 4) * 0.65;
+        continue;
+      }
+      const point = pointOnRoute(cat.route, progress);
+      const ahead = pointOnRoute(cat.route, Math.min(1, progress + 0.025));
+      cat.model.group.position.set(point[0], cat.place[1], point[2]);
+      faceAlong(cat.model.group, point, ahead);
+      if (cat.poseAccumulator >= 0.05) {
+        cat.model.pose({ clip: 'walk', t: cat.time, time: cat.time, seed: cat.id.length, pace: 0.8 });
+        cat.poseAccumulator %= 0.05;
       }
     }
   }
@@ -430,33 +818,67 @@ export async function createBodegaWorld(host) {
     // Staff and cats get a little life even when the shop is quiet.
   }
 
+  function updatePlayer(state, dt) {
+    const canMove = state.started && !state.paused && !state.dayEnded && !state.gameOver;
+    let dx = (playerKeys.has('right') ? 1 : 0) - (playerKeys.has('left') ? 1 : 0);
+    let dz = (playerKeys.has('down') ? 1 : 0) - (playerKeys.has('up') ? 1 : 0);
+    const magnitude = Math.hypot(dx, dz);
+    const moving = canMove && magnitude > 0;
+    if (moving) {
+      dx /= magnitude; dz /= magnitude;
+      const speed = PLAYER_SPEED * (playerKeys.has('run') ? 1.45 : 1);
+      const stepX = dx * speed * dt;
+      const stepZ = dz * speed * dt;
+      const nextX = player.x + stepX;
+      const nextZ = player.z + stepZ;
+      // Resolve axes separately so the owner can slide along a shelf edge.
+      if (!navBlocked(nextX, player.z)) player.x = nextX;
+      if (!navBlocked(player.x, nextZ)) player.z = nextZ;
+      const direction = [dx, 0, dz];
+      playerModel.group.rotation.y = Math.atan2(direction[0], direction[2]);
+    }
+    playerModel.group.position.set(player.x, player.floor, player.z);
+    player.time += dt;
+    player.poseAccumulator += dt;
+    if (player.poseAccumulator >= 0.04) {
+      playerModel.pose({ clip: moving ? 'walk' : 'idle', t: player.time, time: player.time, seed: 29, pace: playerKeys.has('run') ? 1.35 : 1 });
+      player.poseAccumulator %= 0.04;
+    }
+    ownerTag.position.set(player.x, player.floor + 1.56, player.z);
+    ownerTag.quaternion.copy(stage.camera.quaternion);
+    ownerTag.visible = state.started;
+    state.playerPosition = { x: player.x, z: player.z };
+  }
+
+  function updatePurchasingManager(state, dt) {
+    const hired = Boolean(state.purchasingManagerHired);
+    purchasingManagerModel.group.visible = hired;
+    managerTag.visible = hired;
+    if (!hired) return;
+    managerTime += dt;
+    managerPoseAccumulator += dt;
+    if (managerPoseAccumulator >= 0.05) {
+      purchasingManagerModel.pose({ clip: 'idle', t: managerTime, time: managerTime, seed: 43 });
+      managerPoseAccumulator %= 0.05;
+    }
+    managerTag.position.set(managerHome[0], managerHome[1] + 1.56, managerHome[2]);
+    managerTag.quaternion.copy(stage.camera.quaternion);
+  }
+
   function update(state, dt, realTime = 0) {
     if (!state) return;
     syncDisplays(state);
     syncCustomers(state, dt);
-    for (const worker of staffModels) {
-      worker.time += dt;
-      worker.poseAccumulator = (worker.poseAccumulator ?? 0) + dt;
-      if (worker.poseAccumulator >= 0.05) {
-        worker.model.pose({ clip: 'idle', t: worker.time, time: worker.time, seed: worker.name.length });
-        worker.poseAccumulator %= 0.05;
-      }
-    }
-    for (const cat of cats) {
-      cat.time += dt;
-      cat.poseAccumulator = (cat.poseAccumulator ?? 0) + dt;
-      const playing = cat.id === 'jinx' && Math.sin(cat.time * 0.22) > 0.88;
-      if (cat.poseAccumulator >= 0.05) {
-        cat.model.pose({ clip: playing ? 'play' : 'sit', t: cat.time, time: cat.time, seed: cat.time * 0.1 });
-        cat.poseAccumulator %= 0.05;
-      }
-      cat.model.group.rotation.y = Math.sin(cat.time * 0.28 + cat.time * 0.03) * 0.18;
-    }
+    updateStaff(state, dt);
+    updateCats(dt);
+    updatePlayer(state, dt);
+    updatePurchasingManager(state, dt);
     stage.target.set(0, 0.55, 0);
     // Slow, almost imperceptible neon / pendant movement keeps the room warm rather than static.
     if (stage.lantern) stage.lantern.intensity = 1.1 + Math.sin(realTime * 0.8) * 0.04;
   }
 
+  onProgress('Setting up customer routes and cat patrols', 88);
   // Pointer drag rotates the store camera; the management panel remains ordinary DOM UI.
   let dragging = null;
   host.addEventListener('pointerdown', (event) => {
@@ -488,12 +910,15 @@ export async function createBodegaWorld(host) {
     scene,
     cats,
     staffModels,
+    player,
+    purchasingManagerModel,
     displayGroups,
     update,
     setState(state) { window.__bodegaState = state; },
     setOpen(open) { openSign.material.color.set(open ? '#ffffff' : '#a0a0a0'); },
-    dispose() { run?.(); },
+    dispose() { run?.(); window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp); },
   };
   window.__bodegaWorld = world;
+  onProgress('The shutters are ready', 100);
   return world;
 }

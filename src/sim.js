@@ -34,10 +34,12 @@ export const STAFF = [
   { id: 'lou', name: 'Lou Rivera', role: 'Cashier · opens the store', character: 'gent', wage: 14, color: '#e0b982' },
   { id: 'marisol', name: 'Marisol Vega', role: 'Floor lead · stock rotation', character: 'vendor', wage: 12, color: '#64a9a3' },
 ];
+export const PURCHASING_MANAGER = { id: 'rafael', name: 'Rafael Ortiz', role: 'Purchasing manager · supplier orders', character: 'suit', wage: 18, hireCost: 300, unlockLevel: 5, cashReserve: 240 };
+
 export const CAT_ROSTER = [
-  { id: 'blaze', name: 'Blaze', coat: 'ginger', job: 'Produce supervisor', character: 'cat-ginger', place: [-7.1, 0, -4.5] },
-  { id: 'jinx', name: 'Jinx', coat: 'calico', job: 'Window manager', character: 'cat-calico', place: [-7.0, 0, 4.7] },
-  { id: 'nyx', name: 'Nyx', coat: 'black', job: 'Night auditor', character: 'cat-black', place: [5.1, 0, 3.5] },
+  { id: 'blaze', name: 'Blaze', coat: 'ginger', job: 'Produce supervisor', character: 'cat-ginger', place: [-4.25, 0, -5.65] },
+  { id: 'jinx', name: 'Jinx', coat: 'calico', job: 'Window manager', character: 'cat-calico', place: [0.55, 0, 4.8] },
+  { id: 'nyx', name: 'Nyx', coat: 'black', job: 'Night auditor', character: 'cat-black', place: [4.65, 0, 4.8] },
 ];
 
 /**
@@ -155,6 +157,16 @@ const DAY_OPEN = 7 * 60;
 const DAY_CLOSE = 21 * 60;
 const EXPIRY_BUFFER = 1e-8;
 const STAFF_PAYROLL = STAFF.reduce((n, s) => n + s.wage, 0);
+const STORE_LEVEL_XP = 250;
+export const getStoreLevel = (state) => 1 + Math.floor(Math.max(0, state.experience ?? 0) / STORE_LEVEL_XP);
+export function getStoreLevelProgress(state) {
+  const level = getStoreLevel(state);
+  const floor = (level - 1) * STORE_LEVEL_XP;
+  const next = level * STORE_LEVEL_XP;
+  const experience = Math.max(0, state.experience ?? 0);
+  return { level, experience, currentFloor: floor, nextTarget: next, remaining: Math.max(0, next - experience), progress: Math.max(0, Math.min(100, (experience - floor) / STORE_LEVEL_XP * 100)) };
+}
+
 
 export const money = (amount) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
 export const productNow = (state) => state.day + state.minute / 1440;
@@ -195,6 +207,25 @@ export function loadGameState(serialized) {
     state.dayStats.catLoved ??= 0;
     state.dayStats.catAnnoyed ??= 0;
     state.reviewSequence ??= Math.max(0, ...state.reviews.map((review) => review.id || 0));
+    state.staffWork ??= { stage: 'idle', productId: null, timer: 0, duration: 0, moved: 0 };
+    state.experience ??= 0;
+    state.purchasingManagerHired ??= false;
+    state.automaticPurchasingEnabled ??= true;
+    state.nextAutoOrderAt ??= state.minute + 35;
+    state.playerPosition ??= { x: 0.35, z: 5.15 };
+    state.dailyCosts.payroll = STAFF_PAYROLL + (state.purchasingManagerHired ? PURCHASING_MANAGER.wage : 0);
+    // Give existing saves a one-time, prepaid opening reserve so the floor lead
+    // can demonstrate automatic replenishment immediately after this update.
+    if (!state.staffReserveSeeded) {
+      const openingReserve = new Set(['apples','bananas','lettuce','milk','eggs','bread','chicken','beef','rice','pasta','soda','water']);
+      for (const product of PRODUCTS) {
+        if (openingReserve.has(product.id) && qtyOf(state.stockroom[product.id] ?? []) === 0) {
+          state.stockroom[product.id] ??= [];
+          state.stockroom[product.id].push(newBatch(state, product, product.caseSize));
+        }
+      }
+      state.staffReserveSeeded = true;
+    }
     return state;
   } catch { return null; }
 }
@@ -230,6 +261,11 @@ export function createGameState(seed = 20261031) {
     creditLimit: CREDIT_LIMIT,
     creditRate: 0.0125,
     reputation: 78,
+    experience: 0,
+    purchasingManagerHired: false,
+    automaticPurchasingEnabled: true,
+    nextAutoOrderAt: DAY_OPEN + 35,
+    playerPosition: { x: 0.35, z: 5.15 },
     started: false,
     paused: true,
     dayEnded: false,
@@ -251,6 +287,8 @@ export function createGameState(seed = 20261031) {
     lifetime: { revenue: 0, customers: 0, complaints: 0, waste: 0, days: 0 },
     dailyCosts: { rent: 24, payroll: STAFF_PAYROLL, utilities: 8 },
     supplierOrders: 0,
+    staffReserveSeeded: true,
+    staffWork: { stage: 'idle', productId: null, timer: 0, duration: 0, moved: 0 },
     lastDaySummary: null,
   };
 
@@ -263,7 +301,15 @@ export function createGameState(seed = 20261031) {
     state.shelves[product.id].push(newBatch(state, product, startingQty - olderQty));
     sortOldestFirst(state.shelves[product.id]);
   }
+  // Opening reserve is already-paid inventory. Marisol has real backroom stock
+  // to work from on day one, rather than being a decorative employee.
+  const openingReserve = new Set(['apples','bananas','lettuce','milk','eggs','bread','chicken','beef','rice','pasta','soda','water']);
+  for (const product of PRODUCTS) {
+    if (!openingReserve.has(product.id)) continue;
+    state.stockroom[product.id].push(newBatch(state, product, product.caseSize));
+  }
   pushEvent(state, 'note', 'The keys are yours.', 'Lou and Marisol are ready for the morning rush.');
+  pushEvent(state, 'stock', 'Opening reserve is ready in the stockroom.', 'Marisol will automatically replenish low shelves and rotate the oldest valid lots first.');
   pushEvent(state, 'note', 'Three new managers clocked in.', 'Blaze, Jinx, and Nyx are already on the floor.');
   return state;
 }
@@ -296,11 +342,15 @@ export function restockProduct(state, productId, requested = Infinity) {
   const stockroom = sortOldestFirst(state.stockroom[productId]);
   const onShelf = qtyOf(shelf);
   const capacity = product.section === 'produce' ? 24 : product.section === 'chilled' ? 30 : 36;
-  let space = Math.max(0, capacity - onShelf);
+  const space = Math.max(0, capacity - onShelf);
   let remaining = Math.min(space, Math.max(0, requested));
   let moved = 0;
-  while (remaining > 0 && stockroom.length) {
-    const batch = stockroom[0];
+  const now = productNow(state);
+  // Never put already-expired stock back on the floor. Valid lots retain their
+  // original received/expiry dates and are merged by earliest expiry.
+  for (const batch of stockroom) {
+    if (remaining <= 0) break;
+    if (batch.qty <= 0 || isExpired(batch, now)) continue;
     const take = Math.min(batch.qty, remaining);
     const existing = shelf.find((b) => b.lotId === batch.lotId);
     if (existing) existing.qty += take;
@@ -308,11 +358,15 @@ export function restockProduct(state, productId, requested = Infinity) {
     batch.qty -= take;
     moved += take;
     remaining -= take;
-    if (batch.qty <= 0) stockroom.shift();
   }
-  sortOldestFirst(shelf);
-  if (moved) pushEvent(state, 'stock', `${moved} ${product.short.toLowerCase()} moved to the shelf.`, 'Oldest date is at the front.');
-  return { moved, remainingSpace: space - moved, reason: moved ? 'restocked' : onShelf >= capacity ? 'shelf-full' : 'backroom-empty' };
+  state.stockroom[productId] = sortOldestFirst(stockroom.filter((batch) => batch.qty > 0));
+  state.shelves[productId] = sortOldestFirst(shelf);
+  if (moved) pushEvent(state, 'stock', `${moved} ${product.short.toLowerCase()} moved to the shelf.`, 'Oldest valid date is at the front; expired backroom stock was left out.');
+  return {
+    moved,
+    remainingSpace: space - moved,
+    reason: moved ? 'restocked' : onShelf >= capacity ? 'shelf-full' : stockroom.some((batch) => batch.qty > 0) ? 'only-expired-stock' : 'backroom-empty',
+  };
 }
 
 export function restockAll(state) {
@@ -383,7 +437,7 @@ function weightedProduct(state, excluded = new Set()) {
 function chooseCustomerLook(state) {
   const looks = [
     ['tourist', 'Maya', 'weekend visitor'], ['punk', 'Rico', 'regular'], ['hippie', 'Sunny', 'produce fan'],
-    ['neighbour', 'Mr. Delgado', 'neighbour'], ['hipster', 'Ari', 'coffee regular'], ['cabbie', 'Sal', 'night-shift driver'],
+    ['artist', 'Theo', 'local artist'], ['hipster', 'Ari', 'coffee regular'], ['cabbie', 'Sal', 'night-shift driver'],
     ['nonna', 'Mrs. Russo', 'neighbour'], ['beerguy', 'Dwayne', 'after-work regular'], ['salaryman', 'Kenji', 'commuter'],
     ['pizzaiolo', 'Marco', 'late lunch'], ['skater', 'Jules', 'local kid'],
   ];
@@ -415,7 +469,8 @@ function spawnCustomer(state) {
     basket.push({ productId: next.id, qty: 1 + Math.floor(state.random() * 2) });
   }
   const catEncounter = rollCatEncounter(state);
-  const browseTime = 3.5 + state.random() * 3.2 + (catEncounter.catReaction === 'delighted' ? 1.0 : catEncounter.catReaction === 'annoyed' ? -0.55 : 0);
+  // Shoppers spend meaningful time walking the aisles and comparing their 2–3 basket lines.
+  const browseTime = 12 + state.random() * 5 + basket.length * 1.4 + (catEncounter.catReaction === 'delighted' ? 1.2 : catEncounter.catReaction === 'annoyed' ? -0.7 : 0);
   const customer = {
     id: ++state.customerSequence,
     character, name, tag,
@@ -491,6 +546,17 @@ function recordStockout(state, customer, product, { partial = false, requested =
   pushEvent(state, 'warning', message, partial ? 'The shelf ran short, so the basket was only partly filled.' : 'A shelf gap means a missed line in the basket. Reorder and restock.');
 }
 
+function awardStoreExperience(state, amount) {
+  const previousLevel = getStoreLevel(state);
+  state.experience = Math.max(0, Math.floor((state.experience ?? 0) + amount));
+  const level = getStoreLevel(state);
+  if (level > previousLevel) {
+    pushEvent(state, 'level', `Store level up · Level ${level}!`, level >= PURCHASING_MANAGER.unlockLevel
+      ? 'Purchasing manager hiring is now unlocked in the Staff tab.'
+      : `Business experience ${state.experience} · keep serving the neighborhood to unlock new staff.`);
+  }
+}
+
 function checkoutCustomer(state, customer) {
   const basket = customer.basket ?? [{ productId: customer.demandId, qty: customer.basketUnits ?? 1 }];
   let totalSpend = 0, totalBought = 0, hadExpired = false, hadStockout = false;
@@ -534,6 +600,10 @@ function checkoutCustomer(state, customer) {
     if (!hadExpired) state.reputation = Math.max(0, state.reputation - 0.48);
     pushEvent(state, 'cat', `${customer.name} was bothered by ${customer.catName}.`, 'The cat got underfoot. Not every shopper wants a four-legged welcome.');
   }
+  const experienceEarned = customer.result === 'sold' ? 18 + Math.floor(customer.spend * 2)
+    : customer.result === 'partial' ? 8 + Math.floor(customer.spend)
+      : customer.result === 'expired' ? 2 : 5;
+  awardStoreExperience(state, experienceEarned);
 }
 
 function pickReviewText(state, bank, product, catName = 'the bodega cat') {
@@ -667,6 +737,8 @@ export function startNextDay(state) {
   state.dayEnded = false;
   state.paused = false;
   state.customers = [];
+  state.staffWork = { stage: 'idle', productId: null, timer: 0, duration: 0, moved: 0 };
+  state.nextAutoOrderAt = DAY_OPEN + 35;
   state.nextArrival = DAY_OPEN + (12 + state.random() * 20) / trafficMultiplier(state);
   state.dayStats = { revenue: 0, unitsSold: 0, customers: 0, complaints: 0, waste: 0, purchases: 0, grossProfit: 0, stockouts: 0, catLoved: 0, catAnnoyed: 0 };
   pushEvent(state, 'note', `Day ${state.day} begins.`, 'Fresh start. Check the cold case before the rush.');
@@ -693,6 +765,57 @@ export function repayCredit(state, amount = state.debt) {
   return { ok: true, amount: value, debt: state.debt };
 }
 
+export function hirePurchasingManager(state) {
+  if (state.purchasingManagerHired) return { ok: false, reason: 'already-hired' };
+  const level = getStoreLevel(state);
+  if (level < PURCHASING_MANAGER.unlockLevel) return { ok: false, reason: 'level-required', level, requiredLevel: PURCHASING_MANAGER.unlockLevel };
+  if (state.cash < PURCHASING_MANAGER.hireCost) return { ok: false, reason: 'insufficient-funds', required: PURCHASING_MANAGER.hireCost, cash: state.cash };
+  state.cash = Math.round((state.cash - PURCHASING_MANAGER.hireCost) * 100) / 100;
+  state.purchasingManagerHired = true;
+  state.automaticPurchasingEnabled = true;
+  state.dailyCosts.payroll = STAFF_PAYROLL + PURCHASING_MANAGER.wage;
+  state.nextAutoOrderAt = state.minute + 18;
+  pushEvent(state, 'staff', `${PURCHASING_MANAGER.name} joined the team.`, `Hiring ${money(PURCHASING_MANAGER.hireCost)} · ${money(PURCHASING_MANAGER.wage)} daily wage · automatic ordering is enabled.`);
+  return { ok: true, cash: state.cash, wage: PURCHASING_MANAGER.wage, hireCost: PURCHASING_MANAGER.hireCost };
+}
+
+export function setAutomaticPurchasing(state, enabled) {
+  if (!state.purchasingManagerHired) return false;
+  state.automaticPurchasingEnabled = Boolean(enabled);
+  state.nextAutoOrderAt = state.minute + 18;
+  pushEvent(state, 'staff', `Automatic purchasing ${state.automaticPurchasingEnabled ? 'enabled' : 'paused'}.`, state.automaticPurchasingEnabled ? 'Rafael will check stock coverage before placing a cash-funded order.' : 'Supplier orders are back under your direct control.');
+  return true;
+}
+
+function advancePurchasingManager(state) {
+  if (!state.purchasingManagerHired || !state.automaticPurchasingEnabled || state.minute < state.nextAutoOrderAt) return;
+  state.nextAutoOrderAt = state.minute + 90;
+  const now = productNow(state);
+  const reserve = PURCHASING_MANAGER.cashReserve;
+  const options = PRODUCTS.map((product) => {
+    const shelf = qtyOf(state.shelves[product.id].filter((batch) => !isExpired(batch, now)));
+    const back = qtyOf(state.stockroom[product.id].filter((batch) => !isExpired(batch, now)));
+    const total = shelf + back;
+    const reorderPoint = Math.max(2, Math.ceil(product.demand * 3));
+    const target = Math.max(product.caseSize, Math.ceil(product.demand * 7));
+    const shortage = target - total;
+    if (total > reorderPoint || shortage <= 0) return null;
+    const cases = Math.min(2, Math.max(1, Math.ceil(shortage / product.caseSize)));
+    const cost = Math.round(product.cost * product.caseSize * cases * 100) / 100;
+    if (state.cash - cost < reserve) return null;
+    const urgency = (reorderPoint - total + 1) / reorderPoint;
+    const score = urgency * (0.7 + product.demand) + (shelf === 0 ? 0.45 : 0) + (product.shelfLife <= 7 ? 0.12 : 0);
+    return { product, cases, cost, total, target, score };
+  }).filter(Boolean).sort((a, b) => b.score - a.score || a.cost - b.cost);
+  const choice = options[0];
+  if (!choice) {
+    pushEvent(state, 'staff', `${PURCHASING_MANAGER.name} completed a stock review.`, `No urgent case could be ordered while preserving the ${money(reserve)} cash reserve.`);
+    return;
+  }
+  const order = placeOrder(state, choice.product.id, choice.cases);
+  if (order.ok) pushEvent(state, 'staff', `${PURCHASING_MANAGER.name} ordered ${choice.cases} case(s) of ${choice.product.short.toLowerCase()}.`, `${choice.total} usable units against a target of ${choice.target} · ${money(order.total)} paid from the register.`);
+}
+
 function advanceCustomerPhases(state, deltaMinutes) {
   for (const customer of state.customers) {
     customer.phaseTimer -= deltaMinutes;
@@ -700,11 +823,11 @@ function advanceCustomerPhases(state, deltaMinutes) {
     if (customer.phase === 'browsing') {
       checkoutCustomer(state, customer);
       customer.phase = 'checkout';
-      customer.phaseTotal = 1.7;
+      customer.phaseTotal = 3.8;
       customer.phaseTimer = customer.phaseTotal;
     } else if (customer.phase === 'checkout') {
       customer.phase = 'leaving';
-      customer.phaseTotal = 2.8;
+      customer.phaseTotal = 3.2;
       customer.phaseTimer = customer.phaseTotal;
     } else if (customer.phase === 'leaving') {
       maybeLeaveReview(state, customer);
@@ -713,6 +836,69 @@ function advanceCustomerPhases(state, deltaMinutes) {
     }
   }
   state.customers = state.customers.filter((customer) => customer.phase !== 'gone');
+}
+
+/**
+ * Marisol automatically replenishes a low or empty shelf from the stockroom.
+ * She only carries in-date lots; expiry checks and date rotation remain active.
+ */
+function chooseStaffRestockProduct(state) {
+  const now = productNow(state);
+  const candidates = PRODUCTS.map((product) => {
+    const validBackroom = qtyOf(state.stockroom[product.id].filter((batch) => !isExpired(batch, now)));
+    const shelf = shelfQuantity(state, product.id);
+    const target = product.section === 'produce' ? 12 : product.section === 'chilled' ? 13 : 15;
+    if (!validBackroom || shelf >= target) return null;
+    const urgency = (target - shelf) / target;
+    return { product, score: urgency * (1 + product.demand * 0.32) + (shelf === 0 ? 1.2 : 0) };
+  }).filter(Boolean);
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0]?.product ?? null;
+}
+
+function beginStaffRestock(state) {
+  const product = chooseStaffRestockProduct(state);
+  if (!product) return false;
+  state.staffWork = { stage: 'walking-to-shelf', productId: product.id, timer: 2.6, duration: 2.6, moved: 0 };
+  pushEvent(state, 'staff', `Marisol is taking ${product.short.toLowerCase()} out to the shelf.`, 'Floor restock underway · deliveries stay in the stockroom until she works them.');
+  return true;
+}
+
+function advanceStaffWork(state, deltaMinutes) {
+  let remaining = deltaMinutes;
+  let transitions = 0;
+  while (remaining > 0 && transitions < 4) {
+    let task = state.staffWork;
+    if (!task || task.stage === 'idle') {
+      if (!beginStaffRestock(state)) return;
+      task = state.staffWork;
+    }
+    const step = Math.min(remaining, Math.max(0, task.timer));
+    task.timer -= step;
+    remaining -= step;
+    if (task.timer > 1e-8) return;
+    transitions += 1;
+    if (task.stage === 'walking-to-shelf') {
+      task.stage = 'stocking';
+      task.timer = task.duration = 1.65;
+      pushEvent(state, 'staff', `Marisol is stocking ${PRODUCT_BY_ID[task.productId].short.toLowerCase()}.`, 'She checks the dates and puts the oldest valid lot at the front.');
+    } else if (task.stage === 'stocking') {
+      const result = restockProduct(state, task.productId);
+      task.moved = result.moved;
+      task.stage = 'walking-back';
+      task.timer = task.duration = 2.1;
+      if (result.moved) {
+        pushEvent(state, 'staff', `Marisol put ${result.moved} ${PRODUCT_BY_ID[task.productId].short.toLowerCase()} on the shelf.`, 'Automatic restock completed · expiry order preserved.');
+      } else {
+        pushEvent(state, 'staff', `Marisol found no in-date ${PRODUCT_BY_ID[task.productId].short.toLowerCase()} to stock.`, 'Expired backroom lots were left out of the sale area.');
+      }
+    } else {
+      state.staffWork = { stage: 'idle', productId: null, timer: 0, duration: 0, moved: task.moved };
+      // Start at most one additional task in this clock step; normal frame
+      // increments are small, so this only matters after a suspended tab.
+      if (remaining > 0) beginStaffRestock(state);
+    }
+  }
 }
 
 /** Advance the store clock by game-minutes (not real seconds). */
@@ -726,6 +912,8 @@ export function advanceGame(state, deltaMinutes) {
     state.minute += step;
     remaining -= step;
     advanceCustomerPhases(state, step);
+    advanceStaffWork(state, step);
+    advancePurchasingManager(state);
     if (state.minute >= state.nextArrival && state.minute < DAY_CLOSE) {
       spawnCustomer(state);
       state.nextArrival = state.minute + customerArrivalInterval(state);
