@@ -1,0 +1,20 @@
+{
+  "name": "bodega",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A neighborhood bodega management game built on Madness Engine.",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "madness-engine": "github:h1ddenpr0cess20/madness-engine#22f13b29d4b4391c05250b4b33864f215a967aa0"
+  },
+  "devDependencies": {
+    "vite": "^7.1.0"
+  },
+  "engines": { "node": ">=22.12.0" }
+}

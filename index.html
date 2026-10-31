@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#111a20" />
+    <meta name="description" content="Run your own neighborhood bodega. Buy stock, rotate shelves, keep the cold case fresh, and make rent." />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>BODEGA — Corner Store Stories</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand-lockup">
+          <div class="brand-mark">B<span>✳</span></div>
+          <div><div class="brand-name">BODEGA</div><div class="brand-kicker">CORNER STORE STORIES</div></div>
+        </div>
+        <div class="top-stats">
+          <div class="top-stat"><span class="stat-label">REGISTER</span><strong id="cash-value">$1,250.00</strong></div>
+          <div class="top-stat"><span class="stat-label">OUTSTANDING CREDIT</span><strong id="debt-value">$0.00</strong></div>
+          <div class="top-stat"><span class="stat-label">TODAY'S SALES</span><strong id="revenue-value">$0.00</strong></div>
+          <div class="top-stat rep-stat"><span class="stat-label">NEIGHBORHOOD REP</span><div class="rep-line"><strong id="rep-value">78</strong><div class="rep-meter"><i id="rep-meter"></i></div></div></div>
+        </div>
+        <div class="day-controls">
+          <div class="clock-block"><span id="day-label">DAY 01</span><strong id="clock-value">7:00 AM</strong></div>
+          <button class="icon-button" id="sound-toggle" title="Toggle sound" aria-label="Toggle sound">♫</button>
+          <button class="icon-button" id="pause-toggle" title="Pause simulation" aria-label="Pause simulation">Ⅱ</button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="scene-column">
+          <div class="scene-topline">
+            <div class="scene-location"><span class="live-dot"></span><span>EL BARRIO · BROOKLYN, NY</span><span class="scene-divider">/</span><span id="shop-status">SHUTTERS DOWN</span></div>
+            <div class="scene-tools">
+              <span class="scene-hint">DRAG TO LOOK AROUND</span>
+              <div class="speed-control" aria-label="Simulation speed">
+                <button data-speed="1" class="speed-button active">1×</button>
+                <button data-speed="2" class="speed-button">2×</button>
+                <button data-speed="3" class="speed-button">3×</button>
+              </div>
+            </div>
+          </div>
+          <div id="world" aria-label="Three dimensional bodega interior"></div>
+          <div class="scene-bottomline">
+            <div class="scene-caption"><span class="caption-mark">✳</span><span id="scene-caption">The coffee's on. The neighborhood is waking up.</span></div>
+            <div class="scene-foot-meta"><span id="foot-customers">0 SHOPPERS INSIDE</span><span class="scene-divider">·</span><span id="foot-traffic">FOOTFALL STEADY</span><span class="scene-divider">·</span><span id="foot-staff">2 STAFF ON SHIFT</span></div>
+          </div>
+          <div id="start-overlay" class="start-overlay">
+            <div class="opening-card">
+              <div class="opening-eyebrow"><span>EST. 2026</span><span class="opening-star">✳</span><span>YOUR BLOCK, YOUR BODEGA</span></div>
+              <h1>A little store.<br /><em>A big responsibility.</em></h1>
+              <p>Keep the shelves full, the milk cold, the books balanced, and the neighbors coming back. And please, for the love of the block, check those dates.</p>
+              <div class="opening-details"><span><b>$1,250</b> starting cash</span><span><b>23</b> grocery staples</span><span><b>2</b> staff · <b>3</b> cats</span></div>
+              <button id="open-store" class="primary-button opening-button">RAISE THE SHUTTERS <span>↗</span></button>
+              <div class="opening-note">A working store runs on working capital. Orders, wages, rent, and interest all come due.</div>
+            </div>
+          </div>
+          <div id="day-summary" class="day-summary hidden"></div>
+          <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
+        </section>
+
+        <aside class="ops-panel">
+          <div class="ops-heading">
+            <div><div class="eyebrow">THE BACK OFFICE</div><h2>Store operations</h2></div>
+            <div class="open-pill" id="open-pill"><i></i><span>CLOSED</span></div>
+          </div>
+          <nav class="tabs" aria-label="Store management">
+            <button class="tab active" data-tab="overview"><span class="tab-icon">◫</span>Overview</button>
+            <button class="tab" data-tab="shelves"><span class="tab-icon">▤</span>Shelves<span id="shelf-alert-count" class="tab-count hidden">0</span></button>
+            <button class="tab" data-tab="orders"><span class="tab-icon">▣</span>Orders</button>
+            <button class="tab" data-tab="finance"><span class="tab-icon">＄</span>Finance</button>
+            <button class="tab" data-tab="staff"><span class="tab-icon">♙</span>Staff</button>
+            <button class="tab review-tab" data-tab="reviews"><span class="tab-icon">★</span>Reviews</button>
+          </nav>
+          <div id="panel-content" class="panel-content"></div>
+          <div class="panel-footer">
+            <div class="footer-badge">✳</div>
+            <div><strong>LOOK AFTER YOUR BLOCK.</strong><span>THE BLOCK LOOKS AFTER YOU.</span></div>
+            <div class="footer-version">v1.0</div>
+          </div>
+        </aside>
+        <aside class="review-panel" aria-label="Simulated neighborhood store reviews">
+          <div class="review-panel-heading">
+            <div class="review-brand"><span class="review-brand-mark">b</span><span><strong>BLOCKLINE</strong><small>LOCAL STORE REVIEWS</small></span></div>
+            <span class="review-live"><i></i> LIVE</span>
+          </div>
+          <div class="review-store-title"><div><div class="eyebrow">YOUR LISTING</div><h2>Bodega · Brooklyn</h2></div><span class="review-verified">✓</span></div>
+          <div id="review-feed-content" class="review-feed-content"></div>
+        </aside>
+      </main>
+      <div class="bottom-rail"><span><i class="live-dot"></i>THE NEIGHBORHOOD IS ALWAYS OPEN</span><span id="bottom-message">Fresh stock. Fair prices. Good people.</span><span>MADE ON THE BLOCK <b>✳</b></span></div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
