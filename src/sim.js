@@ -912,6 +912,14 @@ function advanceStaffWork(state, deltaMinutes) {
   }
 }
 
+/** Real frame time adjusted to the store's selected speed; zero while closed or paused. */
+export function activeFrameDelta(state, realSeconds) {
+  if (!state.started || state.paused || state.dayEnded || state.gameOver
+    || !Number.isFinite(realSeconds) || realSeconds <= 0) return 0;
+  const speed = Number.isFinite(state.speed) && state.speed > 0 ? state.speed : 1;
+  return realSeconds * speed;
+}
+
 /** Advance the store clock by game-minutes (not real seconds). */
 export function advanceGame(state, deltaMinutes) {
   if (!state.started || state.paused || state.dayEnded || state.gameOver || !Number.isFinite(deltaMinutes) || deltaMinutes <= 0) return;

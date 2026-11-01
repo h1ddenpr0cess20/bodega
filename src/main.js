@@ -1,7 +1,7 @@
 import './style.css';
 import { createAudio } from 'madness-engine/audio';
 import {
-  PRODUCTS, PRODUCT_BY_ID, STAFF, CAT_ROSTER, PURCHASING_MANAGER, createGameState, money, productNow,
+  PRODUCTS, PRODUCT_BY_ID, STAFF, CAT_ROSTER, PURCHASING_MANAGER, createGameState, money, productNow, activeFrameDelta,
   getStoreLevelProgress, hirePurchasingManager, setAutomaticPurchasing,
   shelfQuantity, stockroomQuantity, expiredQuantity, oldestShelfBatch, inventoryHealth,
   restockProduct, restockAll, placeOrder, pullExpired, adjustPrice, borrowCredit,
@@ -593,7 +593,7 @@ function frame(now) {
   const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
   last = now;
   realTime += dt;
-  advanceGame(state, dt * 1.65 * state.speed);
+  advanceGame(state, activeFrameDelta(state, dt) * 1.65);
   recordNewEvents();
   if (now - lastHeaderRender > 160) { updateHeader(); lastHeaderRender = now; }
   if (now - lastPanelRender > 900) {

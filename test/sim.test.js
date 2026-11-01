@@ -5,7 +5,7 @@ import {
   oldestShelfBatch, sellFromShelf, borrowCredit, repayCredit, advanceGame,
   beginDay, startNextDay, adjustPrice, PRODUCT_BY_ID, saveGameState, loadGameState,
   REVIEW_BANK, maybeLeaveReview, customerArrivalInterval, trafficLabel, reviewSummary,
-  PURCHASING_MANAGER, getStoreLevel, getStoreLevelProgress, hirePurchasingManager, setAutomaticPurchasing,
+  PURCHASING_MANAGER, getStoreLevel, getStoreLevelProgress, hirePurchasingManager, setAutomaticPurchasing, activeFrameDelta,
 } from '../src/sim.js';
 
 function prepareState() {
@@ -14,6 +14,27 @@ function prepareState() {
   state.paused = false;
   return state;
 }
+
+test('the shared frame delta respects pause state and selected game speed', () => {
+  const state = createGameState();
+  assert.equal(activeFrameDelta(state, 0.1), 0);
+  state.started = true;
+  state.paused = false;
+  assert.equal(activeFrameDelta(state, 0.1), 0.1);
+  state.speed = 0.5;
+  assert.equal(activeFrameDelta(state, 0.1), 0.05);
+  state.speed = 2;
+  assert.equal(activeFrameDelta(state, 0.1), 0.2);
+  state.paused = true;
+  assert.equal(activeFrameDelta(state, 0.1), 0);
+  state.paused = false;
+  state.dayEnded = true;
+  assert.equal(activeFrameDelta(state, 0.1), 0);
+  state.dayEnded = false;
+  state.gameOver = true;
+  assert.equal(activeFrameDelta(state, 0.1), 0);
+  assert.equal(activeFrameDelta(state, Number.NaN), 0);
+});
 
 test('the catalogue covers produce, dry goods, dairy, eggs, meat, bakery and frozen groceries', () => {
   const categories = new Set(PRODUCTS.map((p) => p.category));

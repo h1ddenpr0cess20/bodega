@@ -22,7 +22,7 @@ import salaryman from 'madness-engine/characters/salaryman';
 import pizzaiolo from 'madness-engine/characters/pizzaiolo';
 import skater from 'madness-engine/characters/skater';
 import { CAT_DEFS } from 'madness-engine/characters/cat';
-import { PRODUCTS, CAT_ROSTER, STAFF, PRODUCT_BY_ID, shelfQuantity } from './sim.js';
+import { PRODUCTS, CAT_ROSTER, STAFF, PRODUCT_BY_ID, shelfQuantity, activeFrameDelta } from './sim.js';
 
 const CUSTOMER_MODELS = { tourist, punk, hippie, artist, hipster, cabbie, nonna, beerguy, salaryman, pizzaiolo, skater };
 const OWNER_CHARACTER = person({
@@ -877,7 +877,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) {
     syncDisplays(state);
     syncCustomers(state, dt);
     updateStaff(state, dt);
-    updateCats(dt);
+    updateCats(activeFrameDelta(state, dt));
     updatePlayer(state, dt);
     updatePurchasingManager(state, dt);
     stage.target.set(0, 0.55, 0);
