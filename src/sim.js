@@ -34,7 +34,7 @@ export const STAFF = [
   { id: 'lou', name: 'Lou Rivera', role: 'Cashier · opens the store', character: 'gent', wage: 14, color: '#e0b982' },
   { id: 'marisol', name: 'Marisol Vega', role: 'Floor lead · stock rotation', character: 'vendor', wage: 12, color: '#64a9a3' },
 ];
-export const PURCHASING_MANAGER = { id: 'rafael', name: 'Rafael Ortiz', role: 'Purchasing manager · supplier orders', character: 'suit', wage: 18, hireCost: 300, unlockLevel: 5, cashReserve: 240 };
+export const PURCHASING_MANAGER = { id: 'rafael', name: 'Rafael Ortiz', role: 'Purchasing manager · supplier orders', character: 'suit', wage: 18, hireCost: 300, unlockLevel: 5, cashReserve: 240, firstReviewDelay: 5, reviewInterval: 30, maxLinesPerReview: 3 };
 
 export const CAT_ROSTER = [
   { id: 'blaze', name: 'Blaze', coat: 'ginger', job: 'Produce supervisor', character: 'cat-ginger', place: [-4.25, 0, -5.65] },
@@ -211,7 +211,7 @@ export function loadGameState(serialized) {
     state.experience ??= 0;
     state.purchasingManagerHired ??= false;
     state.automaticPurchasingEnabled ??= true;
-    state.nextAutoOrderAt ??= state.minute + 35;
+    state.nextAutoOrderAt ??= state.minute + (state.purchasingManagerHired ? PURCHASING_MANAGER.firstReviewDelay : 35);
     state.playerPosition ??= { x: 0.35, z: 5.15 };
     state.dailyCosts.payroll = STAFF_PAYROLL + (state.purchasingManagerHired ? PURCHASING_MANAGER.wage : 0);
     // Give existing saves a one-time, prepaid opening reserve so the floor lead
@@ -738,7 +738,7 @@ export function startNextDay(state) {
   state.paused = false;
   state.customers = [];
   state.staffWork = { stage: 'idle', productId: null, timer: 0, duration: 0, moved: 0 };
-  state.nextAutoOrderAt = DAY_OPEN + 35;
+  state.nextAutoOrderAt = DAY_OPEN + (state.purchasingManagerHired ? PURCHASING_MANAGER.firstReviewDelay : 35);
   state.nextArrival = DAY_OPEN + (12 + state.random() * 20) / trafficMultiplier(state);
   state.dayStats = { revenue: 0, unitsSold: 0, customers: 0, complaints: 0, waste: 0, purchases: 0, grossProfit: 0, stockouts: 0, catLoved: 0, catAnnoyed: 0 };
   pushEvent(state, 'note', `Day ${state.day} begins.`, 'Fresh start. Check the cold case before the rush.');
@@ -774,7 +774,7 @@ export function hirePurchasingManager(state) {
   state.purchasingManagerHired = true;
   state.automaticPurchasingEnabled = true;
   state.dailyCosts.payroll = STAFF_PAYROLL + PURCHASING_MANAGER.wage;
-  state.nextAutoOrderAt = state.minute + 18;
+  state.nextAutoOrderAt = state.minute + PURCHASING_MANAGER.firstReviewDelay;
   pushEvent(state, 'staff', `${PURCHASING_MANAGER.name} joined the team.`, `Hiring ${money(PURCHASING_MANAGER.hireCost)} · ${money(PURCHASING_MANAGER.wage)} daily wage · automatic ordering is enabled.`);
   return { ok: true, cash: state.cash, wage: PURCHASING_MANAGER.wage, hireCost: PURCHASING_MANAGER.hireCost };
 }
@@ -782,14 +782,14 @@ export function hirePurchasingManager(state) {
 export function setAutomaticPurchasing(state, enabled) {
   if (!state.purchasingManagerHired) return false;
   state.automaticPurchasingEnabled = Boolean(enabled);
-  state.nextAutoOrderAt = state.minute + 18;
+  state.nextAutoOrderAt = state.minute + PURCHASING_MANAGER.firstReviewDelay;
   pushEvent(state, 'staff', `Automatic purchasing ${state.automaticPurchasingEnabled ? 'enabled' : 'paused'}.`, state.automaticPurchasingEnabled ? 'Rafael will check stock coverage before placing a cash-funded order.' : 'Supplier orders are back under your direct control.');
   return true;
 }
 
 function advancePurchasingManager(state) {
   if (!state.purchasingManagerHired || !state.automaticPurchasingEnabled || state.minute < state.nextAutoOrderAt) return;
-  state.nextAutoOrderAt = state.minute + 90;
+  state.nextAutoOrderAt = state.minute + PURCHASING_MANAGER.reviewInterval;
   const now = productNow(state);
   const reserve = PURCHASING_MANAGER.cashReserve;
   const options = PRODUCTS.map((product) => {
@@ -802,18 +802,29 @@ function advancePurchasingManager(state) {
     if (total > reorderPoint || shortage <= 0) return null;
     const cases = Math.min(2, Math.max(1, Math.ceil(shortage / product.caseSize)));
     const cost = Math.round(product.cost * product.caseSize * cases * 100) / 100;
-    if (state.cash - cost < reserve) return null;
     const urgency = (reorderPoint - total + 1) / reorderPoint;
     const score = urgency * (0.7 + product.demand) + (shelf === 0 ? 0.45 : 0) + (product.shelfLife <= 7 ? 0.12 : 0);
     return { product, cases, cost, total, target, score };
   }).filter(Boolean).sort((a, b) => b.score - a.score || a.cost - b.cost);
-  const choice = options[0];
-  if (!choice) {
-    pushEvent(state, 'staff', `${PURCHASING_MANAGER.name} completed a stock review.`, `No urgent case could be ordered while preserving the ${money(reserve)} cash reserve.`);
-    return;
+
+  let ordersPlaced = 0;
+  for (const choice of options) {
+    if (ordersPlaced >= PURCHASING_MANAGER.maxLinesPerReview) break;
+    // Rafael can use register cash above the operating reserve only; he never
+    // draws on the credit line or spends the protected buffer.
+    if (state.cash - choice.cost < reserve) continue;
+    const order = placeOrder(state, choice.product.id, choice.cases);
+    if (!order.ok) continue;
+    ordersPlaced += 1;
+    pushEvent(state, 'staff', `${PURCHASING_MANAGER.name} ordered ${choice.cases} case(s) of ${choice.product.short.toLowerCase()}.`, `${choice.total} usable units against a target of ${choice.target} · ${money(order.total)} paid from the register.`);
   }
-  const order = placeOrder(state, choice.product.id, choice.cases);
-  if (order.ok) pushEvent(state, 'staff', `${PURCHASING_MANAGER.name} ordered ${choice.cases} case(s) of ${choice.product.short.toLowerCase()}.`, `${choice.total} usable units against a target of ${choice.target} · ${money(order.total)} paid from the register.`);
+
+  if (!ordersPlaced) {
+    const detail = options.length
+      ? `Low-stock lines were found, but available register cash could not cover an order while preserving the ${money(reserve)} operating reserve.`
+      : 'Shelf and backroom coverage are healthy; no supplier order is needed yet.';
+    pushEvent(state, 'staff', `${PURCHASING_MANAGER.name} completed a stock review.`, detail);
+  }
 }
 
 function advanceCustomerPhases(state, deltaMinutes) {

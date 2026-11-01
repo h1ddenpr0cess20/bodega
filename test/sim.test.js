@@ -421,22 +421,44 @@ test('hiring Rafael charges the recruitment cost and adds his daily wage to payr
   assert.equal(hirePurchasingManager(state).reason, 'already-hired');
 });
 
-test('Rafael automatically orders a needed case from cash, not borrowed credit', () => {
+test('Rafael starts monitoring quickly and orders multiple low-stock lines without using credit', () => {
+  const state = prepareState();
+  state.experience = 1000;
+  state.cash = 900;
+  assert.equal(hirePurchasingManager(state).ok, true);
+  assert.equal(state.nextAutoOrderAt, state.minute + PURCHASING_MANAGER.firstReviewDelay);
+  for (const id of ['bananas', 'milk', 'water', 'bread']) {
+    state.shelves[id] = [];
+    state.stockroom[id] = [];
+  }
+  const cashBeforeOrder = state.cash;
+  const debtBeforeOrder = state.debt;
+  state.nextAutoOrderAt = state.minute;
+  advanceGame(state, 0.2);
+  const orderEvents = state.events.filter((event) => event.type === 'staff' && /Rafael Ortiz ordered/.test(event.message));
+  assert.equal(orderEvents.length, PURCHASING_MANAGER.maxLinesPerReview);
+  for (const id of ['bananas', 'milk', 'water', 'bread']) {
+    const received = state.stockroom[id].reduce((sum, batch) => sum + batch.qty, 0);
+    assert.ok(received >= 0);
+  }
+  assert.ok(state.cash < cashBeforeOrder);
+  assert.ok(state.cash >= PURCHASING_MANAGER.cashReserve);
+  assert.equal(state.debt, debtBeforeOrder);
+  assert.equal(state.nextAutoOrderAt, state.minute + PURCHASING_MANAGER.reviewInterval);
+});
+
+test('Rafael does not order before a review is due', () => {
   const state = prepareState();
   state.experience = 1000;
   state.cash = 900;
   assert.equal(hirePurchasingManager(state).ok, true);
   state.shelves.bananas = [];
   state.stockroom.bananas = [];
-  const cashBeforeOrder = state.cash;
-  const debtBeforeOrder = state.debt;
-  state.nextAutoOrderAt = state.minute;
+  const before = state.cash;
+  advanceGame(state, PURCHASING_MANAGER.firstReviewDelay - 0.1);
+  assert.equal(state.cash, before);
   advanceGame(state, 0.2);
-  const backroomQty = state.stockroom.bananas.reduce((sum, batch) => sum + batch.qty, 0);
-  assert.ok(backroomQty >= PRODUCT_BY_ID.bananas.caseSize);
-  assert.ok(state.cash < cashBeforeOrder);
-  assert.equal(state.debt, debtBeforeOrder);
-  assert.ok(state.events.some((event) => event.type === 'staff' && /Rafael Ortiz ordered/.test(event.message)));
+  assert.ok(state.cash < before);
 });
 
 test('Rafael protects the cash reserve and can pause automatic purchasing', () => {

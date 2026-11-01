@@ -377,7 +377,7 @@ function staffPanel() {
       <p>Checks stock coverage and places supplier orders when a line is running low. Orders are paid from register cash, never from your credit line.</p>
       <div class='manager-rule'><span>CASH BUFFER</span><strong>${money(manager.cashReserve)}</strong><small>Held back for rent, wages and day-to-day operations.</small></div>
       <div class='manager-automation'><div><strong>AUTOMATIC PURCHASING</strong><small>${state.automaticPurchasingEnabled ? 'Rafael is monitoring your shelves.' : 'Automatic orders are paused.'}</small></div><button class='secondary-button' data-action='toggle-auto-purchase'>${state.automaticPurchasingEnabled ? 'PAUSE' : 'RESUME'}</button></div>
-      <div class='fine-print'>Daily wage: ${money(manager.wage)} · Order review roughly every 90 in-game minutes · One or two cases at a time.</div>
+      <div class='fine-print'>Daily wage: ${money(manager.wage)} · Reviews every 30 in-game minutes · Up to three product lines per review, one or two cases each.</div>
     </div>` : `
     <div class='manager-card manager-locked'>
       <div class='manager-card-heading'><span class='manager-avatar'>RO</span><span><strong>Rafael Ortiz</strong><small>PURCHASING MANAGER</small></span><span class='tag ${unlocked ? 'tag-warning' : 'tag-muted'}'>${unlocked ? 'AVAILABLE' : 'LOCKED'}</span></div>
