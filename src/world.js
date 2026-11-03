@@ -509,8 +509,10 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
     }
     // The shelf-edge tag for each line.
     const tag = new GFX.Mesh(new GFX.PlaneGeometry(Math.min(0.9, slot.width * 0.8), 0.22), new GFX.MeshBasicMaterial({ map: labelTexture(product.short), side: GFX.FrontSide }));
-    tag.position.set(0, slot.kind === 'bin' ? -0.1 : -0.14, slot.depth / 2 + (slot.kind === 'bin' ? 0.58 : slot.kind === 'gondola' ? 0.06 : 0.03));   // a gondola's tags hang clear of its base, not in its plane
-    if (slot.kind === 'bin') tag.rotation.x = -0.2;
+    // A bin's tag is on the front face of its low lip (the lip is 0.3 tall, centered 0.02 above the slot, and its face is 0.665 out
+    // from the middle); a gondola's tags hang clear of its base, not in its plane.
+    if (slot.kind === 'bin') tag.position.set(0, 0.02, 0.665);
+    else tag.position.set(0, -0.14, slot.depth / 2 + (slot.kind === 'gondola' ? 0.06 : 0.03));
     group.add(tag);
     shelfLabels.set(product.id, tag);
     displayGroups.set(product.id, { group, units, tag, product, capacity, lastQty: -1 });
