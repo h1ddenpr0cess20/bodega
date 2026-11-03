@@ -699,3 +699,23 @@ test('shoppers only ask for lines that are on sale, and old saves gain the new l
   assert.deepEqual(loaded.shelves.oranges, []);
   assert.equal(loaded.prices.chips, PRODUCT_BY_ID.chips.price);
 });
+
+test('everything on the floor can be moved from the first day, and the shelf stock moves with it', async () => {
+  const { placeFixture, standingPieces } = await import('../src/sim.js');
+  const { SLOTS, setLayout } = await import('../src/layout.js');
+  const state = createGameState(3);
+  const ids = standingPieces(state).map(({ piece }) => piece.id);
+  for (const id of ['pantry', 'produce-1', 'bakery', 'cooler-dairy', 'cooler-frozen']) assert.ok(ids.includes(id), `${id} can be moved`);
+  assert.ok(!ids.includes('bin-1') && !ids.includes('gondola-2'), 'what is not bought yet is not on the floor');
+  // The pantry gondola goes to open floor and its stock goes with it.
+  const before = { ...SLOTS.rice };
+  assert.ok(placeFixture(state, 'pantry', { x: 1.0, z: 0.5, rot: 0 }).ok);
+  setLayout(state.fixtures, state.layout);
+  try {
+    assert.ok(Math.abs(SLOTS.rice.x - 1.0) < 1e-9 && SLOTS.rice.z !== before.z, 'rice moved with the gondola');
+    // A cooler slides along a wall, and cannot be pulled off it.
+    assert.equal(placeFixture(state, 'cooler-dairy', { x: -1, z: 4.2, rot: 0 }).reason, 'needs-wall');
+    assert.ok(placeFixture(state, 'bakery', { x: 2.0, z: 3.5, rot: 0 }).ok, 'the bakery table moves too');
+    assert.equal(placeFixture(state, 'bin-1', { x: 0, z: 0, rot: 0 }).reason, 'not-owned');
+  } finally { setLayout([], {}); }
+});

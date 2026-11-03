@@ -1,4 +1,4 @@
-import { PIECES, PIECE_BY_ID, PIECE_OF_FIXTURE, canPlace, placementProblem } from './layout.js';
+import { PIECES, PIECE_BY_ID, isStanding, canPlace, placementProblem } from './layout.js';
 
 /**
  * Bodega's authoritative store simulation.
@@ -252,22 +252,22 @@ export function fixtureBlock(state, fixtureId) {
   return null;
 }
 
-/** The pieces of floor space the owner has bought, each with where it stands: [{ piece, x, z, rot }]. */
+/** Everything on the floor that can be moved, each with where it stands: [{ piece, x, z, rot }]. */
 export function standingPieces(state) {
-  return PIECES.filter((piece) => piece.fixtures.some((f) => state.fixtures.includes(f)))
+  return PIECES.filter((piece) => isStanding(piece, new Set(state.fixtures)))
     .map((piece) => ({ piece, ...(state.layout[piece.id] ?? piece.home) }));
 }
 
 /** Move a bought shelf, bin or cooler. Shelves and bins stand clear of walls; a cooler goes flat against one. */
 export function placeFixture(state, pieceId, placement) {
   const piece = PIECE_BY_ID[pieceId];
-  if (!piece || !piece.fixtures.some((f) => state.fixtures.includes(f))) return { ok: false, reason: 'not-owned' };
+  if (!piece || !isStanding(piece, new Set(state.fixtures))) return { ok: false, reason: 'not-owned' };
   const p = { x: Number(placement?.x), z: Number(placement?.z), rot: Number(placement?.rot) };
   if (![p.x, p.z, p.rot].every(Number.isFinite) || !Number.isInteger(p.rot) || p.rot < 0 || p.rot > 3) return { ok: false, reason: 'invalid' };
   const reason = canPlace(pieceId, p, state.fixtures, state.layout);
   if (reason) return { ok: false, reason };
   state.layout[pieceId] = p;
-  pushEvent(state, 'note', `${piece.type === 'bin' ? 'A produce bin' : piece.type === 'cooler' ? 'A cooler' : 'The snack gondola'} was moved.`, 'Shoppers and Marisol use its new spot straight away.');
+  pushEvent(state, 'note', `${piece.name} was moved.`, 'Shoppers and Marisol use its new spot straight away.');
   return { ok: true };
 }
 
@@ -332,7 +332,7 @@ export function loadGameState(serialized) {
     for (const [id, p] of Object.entries(saved.layout ?? {})) {
       const piece = PIECE_BY_ID[id];
       const sound = piece && [p?.x, p?.z, p?.rot].every(Number.isFinite) && Number.isInteger(p.rot) && p.rot >= 0 && p.rot < 4;
-      if (sound && piece.fixtures.some((f) => state.fixtures.includes(f)) && !placementProblem(id, p, state.fixtures, state.layout)) state.layout[id] = { x: p.x, z: p.z, rot: p.rot };
+      if (sound && isStanding(piece, new Set(state.fixtures)) && !placementProblem(id, p, state.fixtures, state.layout)) state.layout[id] = { x: p.x, z: p.z, rot: p.rot };
     }
     state.orderCases = { ...Object.fromEntries(PRODUCTS.map((p) => [p.id, 1])), ...state.orderCases };
     state.reviews ??= OPENING_REVIEWS.map((review) => ({ ...review })).reverse();

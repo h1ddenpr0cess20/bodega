@@ -17,40 +17,56 @@ export const SIDEWALK = { minZ: 7.15, maxZ: 10.2 };
 
 // ——— shelving ———
 export const LEVELS = [0.42, 1.04, 1.66];                     // shelf boards on the dry-goods gondola
-export const GONDOLA = { x: -1.6, z: -2.4, length: 4.0, depth: 1.0, height: 2.25 };   // tall enough that a cereal box on the top shelf clears the cap
-export const COOLER_LEVELS = [0.46, 1.2];
-export const COOLERS = {
-  zBack: -6.85, depth: 1.0, height: 1.95,
-  sections: [
-    { id: 'dairy', label: 'DAIRY', x0: -3.6, x1: -0.2 },
-    { id: 'meat', label: 'EGGS · MEAT · DELI', x0: -0.2, x1: 3.2 },
-    { id: 'drinks', label: 'COLD DRINKS', x0: 3.2, x1: 5.9 },
-    { id: 'frozen', label: 'FROZEN', x0: 5.9, x1: 8.6 },
-  ],
-};
-// Floor space that can be bought for the new lines (sim.js FIXTURES has what each costs and opens), and
-// moved about the shop. A piece is drawn facing +z (`rot` turns it a quarter at a time: 1 faces +x).
-// The inside of the walls; a cooler's back stands against them.
-export const INNER = { minX: -8.85, maxX: 8.85, minZ: -6.85, maxZ: 6.85 };
+export const GONDOLA = { length: 4.0, depth: 1.0, height: 2.25 };   // tall enough that a cereal box on the top shelf clears the cap
 export const GONDOLA_2 = { length: 3.4, depth: 1.0, height: 2.25 };
+export const COOLER_LEVELS = [0.46, 1.2];
+export const COOLER_HEIGHT = 1.95;
+export const BIN_SIZE = 1.3;
+export const BAKERY_TOP = 0.88;
+/** The inside of the walls; a cooler's back stands against them. */
+export const INNER = { minX: -8.85, maxX: 8.85, minZ: -6.85, maxZ: 6.85 };
+/** How far from a face a shopper stands, and how much clear floor each face needs. */
+export const FACE_REACH = 0.95;
+/** The least room a shelf, bin or table leaves between itself and a wall. */
+export const WALL_GAP = 0.15;
+
 /** Which board of the second gondola each shelf fixture is: the face (1 faces the street) and the level. */
 export const GONDOLA_2_BOARDS = { 'shelf-2': [1, 0], 'shelf-3': [1, 1], 'shelf-4': [1, 2], 'shelf-5': [-1, 0], 'shelf-6': [-1, 1], 'shelf-7': [-1, 2] };
-export const REACH_COOLER = { depth: 1.0, width: 1.7, height: 1.95 };
-export const BIN_SIZE = 1.3;
-/** How far from a shelf or bin a shopper stands, and the clear floor each face and side needs. */
-export const FACE_REACH = 0.95;
-export const WALL_GAP = 0.3;
+const GONDOLA_2_STOCK = Object.entries({ sugar: 'shelf-2', oats: 'shelf-3', peanutbutter: 'shelf-4', chips: 'shelf-5', cookies: 'shelf-6', candybar: 'shelf-7' })
+  .map(([id, fixture]) => [id, ...GONDOLA_2_BOARDS[fixture]]);
+
+/**
+ * Everything that stands on the floor of the shop and can be moved about it: shelves, bins, the bakery table
+ * and the coolers. Each is drawn facing +z (`rot` turns it a quarter at a time: 1 faces +x) and has a `home`, where
+ * it starts. `always` ones are there from the first day; the rest stand once one of their `fixtures` (sim.js FIXTURES)
+ * is bought. `stock` is what goes on it: gondola boards as [product, face, level], bins and tables as product
+ * lists, coolers as rows of products from the bottom shelf up.
+ */
 export const PIECES = [
-  // Five produce bins, one for each new line: three in an island, two in a column beside it.
-  ...['bin-1', 'bin-2', 'bin-3', 'bin-4', 'bin-5'].map((id, i) => ({ id, type: 'bin', fixtures: [id], w: BIN_SIZE, d: BIN_SIZE, home: { x: i < 3 ? -5.0 : -1.8, z: [-0.1, 1.35, 2.8, 1.4, 2.9][i], rot: 1 } })),
-  { id: 'gondola-2', type: 'gondola', fixtures: Object.keys(GONDOLA_2_BOARDS), w: GONDOLA_2.length, d: GONDOLA_2.depth, home: { x: 3.2, z: -2.4, rot: 0 } },
-  ...['cooler-1', 'cooler-2'].map((id, i) => ({ id, type: 'cooler', fixtures: [id], w: REACH_COOLER.width, d: REACH_COOLER.depth, home: { x: INNER.maxX - REACH_COOLER.depth / 2, z: [-3.5, -1.7][i], rot: 3 } })),
+  { id: 'pantry', type: 'gondola', name: 'Pantry gondola', w: GONDOLA.length, d: GONDOLA.depth, always: true, fixtures: ['shelf-1'], home: { x: -1.6, z: -2.4, rot: 0 },
+    stock: [['rice', 1, 0], ['pasta', 1, 1], ['cereal', 1, 2], ['beans', -1, 0], ['coffee', -1, 1], ['flour', -1, 2]] },
+  ...['apples', 'bananas', 'tomatoes', 'lettuce', 'potatoes'].map((product, i) => ({
+    id: `produce-${i + 1}`, type: 'bin', name: 'Produce bin', w: BIN_SIZE, d: BIN_SIZE, always: true, fixtures: [], home: { x: -8.0, z: [-0.55, 0.95, 2.45, 3.95, 5.45][i], rot: 1 }, stock: [product],
+  })),
+  { id: 'bakery', type: 'table', name: 'Bakery table', w: 2.0, d: 0.9, always: true, fixtures: [], home: { x: -4.6, z: 5.4, rot: 2 }, stock: ['bread'] },
+  ...[
+    ['dairy', 'DAIRY', 3.4, -1.9, [['milk', 'yogurt'], ['cheese', 'butter']]],
+    ['meat', 'EGGS · MEAT · DELI', 3.4, 1.5, [['eggs', 'chicken'], ['beef', 'deli']]],
+    ['drinks', 'COLD DRINKS', 2.7, 4.55, [['soda'], ['water']]],
+    ['frozen', 'FROZEN', 2.7, 7.25, [['pizza'], ['icecream']]],
+  ].map(([id, label, w, x, rows]) => ({ id: `cooler-${id}`, type: 'cooler', name: `${label[0]}${label.slice(1).toLowerCase()} cooler`, label, w, d: 1.0, always: true, fixtures: [], home: { x, z: INNER.minZ + 0.5, rot: 0 }, stock: rows })),
+  // What the owner can buy (sim.js FIXTURES has what each costs and opens): a bin for each new produce line,
+  // a second gondola of snack shelves, and two reach-in cooler doors.
+  ...['oranges', 'carrots', 'onions', 'peppers', 'grapes'].map((product, i) => ({
+    id: `bin-${i + 1}`, type: 'bin', name: 'Produce bin', w: BIN_SIZE, d: BIN_SIZE, fixtures: [`bin-${i + 1}`], home: { x: i < 3 ? -5.0 : -1.8, z: [-0.1, 1.35, 2.8, 1.4, 2.9][i], rot: 1 }, stock: [product],
+  })),
+  { id: 'gondola-2', type: 'gondola', name: 'Snack gondola', w: GONDOLA_2.length, d: GONDOLA_2.depth, fixtures: Object.keys(GONDOLA_2_BOARDS), home: { x: 3.2, z: -2.4, rot: 0 }, stock: GONDOLA_2_STOCK },
+  ...[['cooler-1', -3.5, [['orangejuice'], ['bacon']]], ['cooler-2', -1.7, [['sourcream']]]].map(([id, z, rows]) => ({
+    id, type: 'cooler', name: 'Reach-in cooler', label: 'COLD', w: 1.7, d: 1.0, fixtures: [id], home: { x: INNER.maxX - 0.5, z, rot: 3 }, stock: rows,
+  })),
 ];
 export const PIECE_BY_ID = Object.fromEntries(PIECES.map((p) => [p.id, p]));
 export const PIECE_OF_FIXTURE = Object.fromEntries(PIECES.flatMap((p) => p.fixtures.map((f) => [f, p.id])));
-export const PRODUCE_X = -8.0;
-export const PRODUCE_Z = [-0.55, 0.95, 2.45, 3.95, 5.45];
-export const BAKERY = { x: -4.6, z: 5.4, w: 2.0, d: 0.9, top: 0.88 };
 export const COUNTER = { x: 6.4, z: 3.0, w: 1.0, d: 4.2, top: 1.12 };      // the checkout counter, along the right side
 export const BACKBAR = { x: 8.5, z: 3.0, w: 0.6, d: 4.2 };                // the cashier's shelving on the right wall
 export const BACKROOM_FIXTURES = {
@@ -63,64 +79,41 @@ export const BACKROOM_FIXTURES = {
  * Where each product is shelved: the middle of its slot, the board's height, how
  * wide and deep the slot is, and the way it faces (yaw, radians; 0 faces the
  * street). `kind` says what holds it. `stand` is where a shopper stands to browse.
+ * They follow their piece about the shop (see `refreshSlots`).
  */
-function slotsFor() {
-  const out = {};
-  const g = GONDOLA;
-  const shelfOn = (G, id, face, level) => {
-    const s = face > 0 ? 1 : -1;
-    out[id] = { kind: 'gondola', x: G.x, y: LEVELS[level], z: G.z + s * 0.27, width: G.length - 0.3, depth: 0.5, yaw: face > 0 ? 0 : Math.PI, stand: [G.x, G.z + s * 1.35] };
-  };
-  const shelf = (id, face, level) => shelfOn(g, id, face, level);
-  shelf('rice', 1, 0); shelf('pasta', 1, 1); shelf('cereal', 1, 2);
-  shelf('beans', -1, 0); shelf('coffee', -1, 1);
-  shelf('flour', -1, 2);
-  const cooler = (section, rows) => {
-    const sec = COOLERS.sections.find((c) => c.id === section);
-    const cx = (sec.x0 + sec.x1) / 2, width = sec.x1 - sec.x0 - 0.3;
-    rows.forEach((row, level) => row.forEach((id, i) => {
-      const half = width / row.length;
-      const x = sec.x0 + 0.15 + half * (i + 0.5);
-      out[id] = { kind: 'cooler', x, y: COOLER_LEVELS[level], z: COOLERS.zBack + 0.5, width: half - 0.08, depth: 0.74, yaw: 0, stand: [cx, -4.9] };
-    }));
-  };
-  cooler('dairy', [['milk', 'yogurt'], ['cheese', 'butter']]);
-  cooler('meat', [['eggs', 'chicken'], ['beef', 'deli']]);
-  cooler('drinks', [['soda'], ['water']]);
-  cooler('frozen', [['pizza'], ['icecream']]);
+export const SLOTS = {};
 
-  ['apples', 'bananas', 'tomatoes', 'lettuce', 'potatoes'].forEach((id, i) => {
-    out[id] = { kind: 'bin', x: PRODUCE_X, y: 0.4, z: PRODUCE_Z[i], width: 1.1, depth: 1.1, yaw: Math.PI / 2, stand: [PRODUCE_X + 1.6, PRODUCE_Z[i]] };
-  });
-  out.bread = { kind: 'table', x: BAKERY.x, y: BAKERY.top, z: BAKERY.z, width: BAKERY.w - 0.3, depth: 0.6, yaw: 0, stand: [BAKERY.x, BAKERY.z - 1.3] };
-  return out;
-}
-export const SLOTS = slotsFor();
-
-/** Each movable product's place in its piece's own frame, before the piece is put anywhere: [piece, local slot]. */
+/** Each product's place in its piece's own frame, before the piece is put anywhere: [piece id, local slot]. */
 const LOCAL_SLOTS = (() => {
   const out = {};
-  const bin = (id, piece) => { out[id] = [piece, { kind: 'bin', lx: 0, y: 0.4, lz: 0, width: 1.1, depth: 1.1, yaw: 0, stand: [0, 1.6] }]; };
-  bin('oranges', 'bin-1'); bin('carrots', 'bin-2'); bin('onions', 'bin-3'); bin('peppers', 'bin-4'); bin('grapes', 'bin-5');
-  const G2 = { sugar: 'shelf-2', oats: 'shelf-3', peanutbutter: 'shelf-4', chips: 'shelf-5', cookies: 'shelf-6', candybar: 'shelf-7' };
-  for (const [id, fixture] of Object.entries(G2)) {
-    const [face, level] = GONDOLA_2_BOARDS[fixture];
-    out[id] = ['gondola-2', { kind: 'gondola', lx: 0, y: LEVELS[level], lz: face * 0.27, width: GONDOLA_2.length - 0.3, depth: 0.5, yaw: face > 0 ? 0 : Math.PI, stand: [0, face * 1.35] }];
+  for (const piece of PIECES) {
+    if (piece.type === 'gondola') {
+      for (const [id, face, level] of piece.stock) out[id] = [piece.id, { kind: 'gondola', lx: 0, y: LEVELS[level], lz: face * 0.27, width: piece.w - 0.3, depth: 0.5, yaw: face > 0 ? 0 : Math.PI, stand: [0, face * 1.35] }];
+    } else if (piece.type === 'bin') {
+      for (const id of piece.stock) out[id] = [piece.id, { kind: 'bin', lx: 0, y: 0.4, lz: 0, width: 1.1, depth: 1.1, yaw: 0, stand: [0, 1.6] }];
+    } else if (piece.type === 'table') {
+      for (const id of piece.stock) out[id] = [piece.id, { kind: 'table', lx: 0, y: BAKERY_TOP, lz: 0, width: piece.w - 0.3, depth: 0.6, yaw: 0, stand: [0, 1.3] }];
+    } else {
+      piece.stock.forEach((row, level) => row.forEach((id, i) => {
+        const half = (piece.w - 0.3) / row.length;
+        out[id] = [piece.id, { kind: 'cooler', lx: -piece.w / 2 + 0.15 + half * (i + 0.5), y: COOLER_LEVELS[level], lz: 0, width: half - 0.08, depth: 0.74, yaw: 0, stand: [0, piece.d / 2 + FACE_REACH] }];
+      }));
+    }
   }
-  const cool = (id, piece, level) => { out[id] = [piece, { kind: 'cooler', lx: 0, y: COOLER_LEVELS[level], lz: 0, width: REACH_COOLER.width - 0.2, depth: 0.74, yaw: 0, stand: [0, 1.3] }]; };
-  cool('orangejuice', 'cooler-1', 0); cool('bacon', 'cooler-1', 1); cool('sourcream', 'cooler-2', 0);
   return out;
 })();
 
 /** The products that stand on a piece. */
 export const LOCAL_PRODUCTS = (pieceId) => Object.entries(LOCAL_SLOTS).filter(([, [piece]]) => piece === pieceId).map(([id]) => id);
 
-// ——— where the bought pieces stand ———
+// ——— where the pieces stand ———
 let owned = new Set();
 let moved = {};
 /** A piece's placement: where the owner put it, or its home. */
 export const placementOf = (id, layout = moved) => layout[id] ?? PIECE_BY_ID[id].home;
-const standing = (piece, ids) => piece.fixtures.some((f) => ids.has(f));
+/** Whether a piece is on the floor: the ones the shop opens with always are, the rest once one of their fixtures is bought. */
+export const isStanding = (piece, ids) => piece.always || piece.fixtures.some((f) => ids.has(f));
+const standing = isStanding;
 
 /** A point in a piece's own frame as a point on the floor. */
 function toWorld(p, lx, lz) {
@@ -128,7 +121,7 @@ function toWorld(p, lx, lz) {
   return [p.x + lx * c + lz * s, p.z - lx * s + lz * c];
 }
 
-/** Put every movable product where its piece stands. */
+/** Put every product where its piece stands. */
 function refreshSlots() {
   for (const [id, [pieceId, local]] of Object.entries(LOCAL_SLOTS)) {
     const p = placementOf(pieceId);
@@ -147,7 +140,6 @@ export function footprint(piece, p) {
   const sideways = p.rot % 2 !== 0;
   return { x: p.x, z: p.z, w: sideways ? piece.d : piece.w, d: sideways ? piece.w : piece.d };
 }
-
 
 // ——— where people go ———
 export const DOOR_IN = [FRONT_DOOR.x, 0, 6.5];
@@ -205,10 +197,6 @@ export const NAV_BLOCKERS = [
   { x: (BACKROOM.minX + gapL) / 2, z: BACKROOM.maxZ, w: gapL - BACKROOM.minX, d: w },
   { x: (gapR + BACKROOM.maxX) / 2, z: BACKROOM.maxZ, w: BACKROOM.maxX - gapR, d: w },
   ...Object.values(BACKROOM_FIXTURES),
-  ...PRODUCE_Z.map((z) => ({ x: PRODUCE_X, z, w: 1.4, d: 1.4 })),
-  { x: BAKERY.x, z: BAKERY.z, w: BAKERY.w, d: BAKERY.d },
-  { x: GONDOLA.x, z: GONDOLA.z, w: GONDOLA.length, d: GONDOLA.depth },
-  { x: (COOLERS.sections[0].x0 + COOLERS.sections.at(-1).x1) / 2, z: COOLERS.zBack + COOLERS.depth / 2, w: COOLERS.sections.at(-1).x1 - COOLERS.sections[0].x0, d: COOLERS.depth },
   { x: COUNTER.x, z: COUNTER.z, w: COUNTER.w, d: COUNTER.d },
   { x: BACKBAR.x, z: BACKBAR.z, w: BACKBAR.w, d: BACKBAR.d },
   ...STREET_ITEMS.map((p) => ({ x: p.x, z: p.z, w: p.r * 2, d: p.r * 2 })),

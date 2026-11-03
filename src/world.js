@@ -10,9 +10,9 @@ import { paintSky } from 'madness-engine/textures/skies/haze';
 import { screenMovementToWorld, startsCameraDrag, holdsCameraDrag, endsCameraDrag } from './controls.js';
 import { PRODUCTS, CAT_ROSTER, STAFF, PRODUCT_BY_ID, RESIDENTS, RESIDENT_BY_ID, isAvailable, shelfQuantity, stockroomQuantity, activeFrameDelta } from './sim.js';
 import {
-  SHELL, FRONT_DOOR, REAR_DOOR, BACKROOM, SIDEWALK, LEVELS, GONDOLA, COOLER_LEVELS, COOLERS, PRODUCE_X, PRODUCE_Z, BAKERY, COUNTER,
+  SHELL, FRONT_DOOR, REAR_DOOR, BACKROOM, SIDEWALK, LEVELS, GONDOLA, COOLER_LEVELS, COOLER_HEIGHT, BAKERY_TOP, COUNTER,
   BACKBAR, BACKROOM_FIXTURES, SLOTS, DOOR_IN, SIDEWALK_SPAWN, SIDEWALK_EXITS, CHECKOUT, LOU_HOME, MARISOL_HOME, MANAGER_HOME, PLAYER_HOME,
-  GONDOLA_2, GONDOLA_2_BOARDS, REACH_COOLER, BIN_SIZE, PIECES, PIECE_BY_ID, LOCAL_PRODUCTS, placementOf, setLayout, footprint, snapPlacement, placementProblem,
+  GONDOLA_2_BOARDS, BIN_SIZE, PIECES, PIECE_BY_ID, placementOf, setLayout, footprint, snapPlacement, placementProblem,
   CAT_PATROLS, navBlocked, nearestWalkable, findWalkPath, planWalkRoute, routeLength, pointOnRoute,
 } from './layout.js';
 import { wallOpacity, easeOpacity, WALL_MODES } from './walls.js';
@@ -374,91 +374,63 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   // ——— shelving and fixtures ———
   onProgress('Setting up shelves and the checkout', 70);
   const shelfLabels = new Map();
-  function gondola() {
-    const { x, z, length, depth, height } = GONDOLA;
-    box(scene, x, 0.16, z, length + 0.06, 0.22, depth + 0.1, mats.dark);
-    for (const sx of [-1, 1]) box(scene, x + sx * (length / 2 - 0.05), height / 2, z, 0.1, height, depth, mats.metal);
-    box(scene, x, height / 2, z, length - 0.2, height - 0.1, 0.08, mats.steelDark);
-    for (const level of LEVELS) for (const s of [-1, 1]) box(scene, x, level - 0.03, z + s * 0.28, length - 0.12, 0.05, 0.52, mats.woodLight);
-    box(scene, x, height + 0.04, z, length + 0.1, 0.1, depth + 0.1, mats.dark);
-    for (const s of [-1, 1]) signPlane(scene, s > 0 ? 'PANTRY · RICE · PASTA · CEREAL' : 'BEANS · COFFEE', x, height + 0.38, z + s * 0.56, 3.4, 0.46, { background: '#33464c', foreground: '#f4e9d1', accent: '#d16f53', fontSize: 34, width: 768, height: 96 }, { rotationY: s > 0 ? 0 : Math.PI, singleSided: true });
-  }
-  function coolers() {
-    const { zBack, depth, height, sections } = COOLERS;
-    const x0 = sections[0].x0, x1 = sections.at(-1).x1;
-    // The compressor plinth is set back from the glass (so the glass never shares its front plane), and the
-    // back panel stands a centimeter off the wall (so its back face is not in the plinth's or the wall's plane).
-    box(scene, (x0 + x1) / 2, 0.15, zBack + (depth - 0.05) / 2, x1 - x0 + 0.06, 0.3, depth - 0.05, mats.steelDark);
-    box(scene, (x0 + x1) / 2, height / 2 + 0.15, zBack + 0.05, x1 - x0, height, 0.08, std('#cfd8d8', { roughness: 0.5 }));
-    box(scene, (x0 + x1) / 2, height + 0.2, zBack + depth / 2, x1 - x0 + 0.1, 0.16, depth + 0.06, mats.steelDark);   // the canopy
-    box(scene, (x0 + x1) / 2, height + 0.05, zBack + depth - 0.06, x1 - x0, 0.05, 0.05, mats.led, { castShadow: false });
-    // One post at every section boundary (neighboring sections used to each stand one there, in the same place).
-    for (const edge of [...sections.map((sec) => sec.x0), sections.at(-1).x1]) box(scene, edge, height / 2 + 0.15, zBack + depth - 0.02, 0.08, height, 0.1, mats.metal);
-    for (const sec of sections) {
-      const cx = (sec.x0 + sec.x1) / 2, sw = sec.x1 - sec.x0;
-      for (const level of COOLER_LEVELS) box(scene, cx, level - 0.03, zBack + 0.5, sw - 0.06, 0.05, 0.84, mats.metal);
-      box(scene, cx, (0.3 + height + 0.1) / 2, zBack + depth - 0.02, sw - 0.04, height - 0.2, 0.04, mats.glass, { castShadow: false });   // above the plinth, not overlapping it
-      box(scene, cx, height / 2 + 0.15, zBack + depth - 0.01, 0.05, height - 0.1, 0.07, mats.metal);
-      signPlane(scene, sec.label, cx, height + 0.2, zBack + depth + 0.04, Math.min(3, sw - 0.3), 0.3, { background: '#38545a', foreground: '#eef3e5', accent: '#b3d9d2', fontSize: 38, width: 768, height: 80 });
-    }
-  }
-  function produceBins() {
-    PRODUCE_Z.forEach((z) => {
-      const group = new GFX.Group(); group.position.set(PRODUCE_X, 0, z); scene.add(group);
-      box(group, 0, 0.18, 0, 1.3, 0.36, 1.3, mats.wood);
-      box(group, 0.62, 0.42, 0, 0.08, 0.3, 1.34, mats.woodLight);                      // the low lip on the aisle side
-      box(group, -0.61, 0.55, 0, 0.1, 0.9, 1.34, mats.woodLight);                      // the tall back
-      box(group, -0.04, 0.4, 0, 1.12, 0.04, 1.14, mats.woodDark);
-    });
-  }
-  // The fixtures the owner can buy: produce bins, snack shelves and a reach-in cooler. Each is built in its own frame,
-  // facing +z, so it can be stood anywhere and turned; it stays unseen until it is bought.
+  // Everything that stands on the floor and can be moved (layout.js PIECES): each is built in its own frame, facing +z, and
+  // stood where the layout says. The ones that are bought stay unseen until they are.
   const pieceViews = new Map();
   const fixtureViews = new Map();
   const forFixture = (id, object) => { object.visible = false; if (!fixtureViews.has(id)) fixtureViews.set(id, []); fixtureViews.get(id).push(object); return object; };
-  function purchasableFixtures() {
-    for (const piece of PIECES) {
-      const group = new GFX.Group(); scene.add(group); pieceViews.set(piece.id, group);
-      if (piece.type === 'bin') {
-        forFixture(piece.id, group);
-        box(group, 0, 0.18, 0, BIN_SIZE, 0.36, BIN_SIZE, mats.wood);
-        box(group, 0, 0.42, 0.62, 1.34, 0.3, 0.08, mats.woodLight);                    // the low lip on the aisle side
-        box(group, 0, 0.55, -0.61, 1.34, 0.9, 0.1, mats.woodLight);                    // the tall back
-        box(group, 0, 0.4, -0.04, 1.14, 0.04, 1.12, mats.woodDark);
-      } else if (piece.type === 'gondola') {
-        // The frame stands once any of its boards is bought, and each board when it is.
-        const { length, depth, height } = GONDOLA_2;
-        group.visible = false;
-        box(group, 0, 0.16, 0, length + 0.06, 0.22, depth + 0.1, mats.dark);
-        for (const sx of [-1, 1]) box(group, sx * (length / 2 - 0.05), height / 2, 0, 0.1, height, depth, mats.metal);
-        box(group, 0, height / 2, 0, length - 0.2, height - 0.1, 0.08, mats.steelDark);
-        box(group, 0, height + 0.04, 0, length + 0.1, 0.1, depth + 0.1, mats.dark);
-        for (const s of [-1, 1]) signPlane(group, s > 0 ? 'SNACKS · BAKING · SPREADS' : 'CHIPS · COOKIES · CANDY', 0, height + 0.38, s * 0.56, 3.0, 0.46, { background: '#33464c', foreground: '#f4e9d1', accent: '#d16f53', fontSize: 34, width: 768, height: 96 }, { rotationY: s > 0 ? 0 : Math.PI, singleSided: true });
-        for (const id of piece.fixtures) forFixture(id, group);
-        for (const [id, [face, level]] of Object.entries(GONDOLA_2_BOARDS)) {
-          const board = forFixture(id, new GFX.Group()); group.add(board);
-          box(board, 0, LEVELS[level] - 0.03, face * 0.28, length - 0.12, 0.05, 0.52, mats.woodLight);
-        }
-      } else {
-        const { depth: cd, height: ch, width: cw } = REACH_COOLER;
-        forFixture(piece.id, group);
-        box(group, 0, 0.15, -0.02, cw, 0.3, cd - 0.05, mats.steelDark);                                // plinth
-        box(group, 0, ch / 2 + 0.15, -0.45, cw, ch, 0.08, std('#cfd8d8', { roughness: 0.5 }));         // back panel
-        box(group, 0, ch + 0.2, 0, cw + 0.06, 0.16, cd + 0.06, mats.steelDark);                        // canopy
-        box(group, 0, ch + 0.05, 0.45, cw, 0.05, 0.05, mats.led, { castShadow: false });
-        for (const sx of [-1, 1]) box(group, sx * (cw / 2 - 0.03), ch / 2 + 0.15, 0.45, 0.06, ch, 0.1, mats.metal);
-        for (const level of COOLER_LEVELS) box(group, 0, level - 0.03, 0, cw - 0.08, 0.05, 0.84, mats.metal);
-        box(group, 0, (0.3 + ch + 0.1) / 2, 0.47, cw - 0.1, ch - 0.2, 0.04, mats.glass, { castShadow: false });
-        signPlane(group, 'COLD', 0, ch + 0.2, 0.52, 1.0, 0.3, { background: '#38545a', foreground: '#eef3e5', accent: '#b3d9d2', fontSize: 38, width: 768, height: 80 });
-      }
+  const signStyle = { background: '#33464c', foreground: '#f4e9d1', accent: '#d16f53', fontSize: 34, width: 768, height: 96 };
+  const coolerStyle = { background: '#38545a', foreground: '#eef3e5', accent: '#b3d9d2', fontSize: 38, width: 768, height: 80 };
+  function buildGondola(group, piece) {
+    const { w: length, d: depth } = piece, height = GONDOLA.height;
+    box(group, 0, 0.16, 0, length + 0.06, 0.22, depth + 0.1, mats.dark);
+    for (const sx of [-1, 1]) box(group, sx * (length / 2 - 0.05), height / 2, 0, 0.1, height, depth, mats.metal);
+    box(group, 0, height / 2, 0, length - 0.2, height - 0.1, 0.08, mats.steelDark);
+    box(group, 0, height + 0.04, 0, length + 0.1, 0.1, depth + 0.1, mats.dark);
+    const faces = piece.id === 'pantry' ? ['PANTRY · RICE · PASTA · CEREAL', 'BEANS · COFFEE · FLOUR'] : ['SNACKS · BAKING · SPREADS', 'CHIPS · COOKIES · CANDY'];
+    for (const s of [-1, 1]) signPlane(group, s > 0 ? faces[0] : faces[1], 0, height + 0.38, s * 0.56, Math.min(3.4, length - 0.5), 0.46, signStyle, { rotationY: s > 0 ? 0 : Math.PI, singleSided: true });
+    // The boards: all of them on the pantry gondola, each of the second one's when it is bought.
+    for (const [level, y] of LEVELS.entries()) for (const face of [1, -1]) {
+      const fixture = Object.entries(GONDOLA_2_BOARDS).find(([, [f, l]]) => f === face && l === level)?.[0];
+      const board = piece.id === 'pantry' ? group : forFixture(fixture, new GFX.Group());
+      if (board !== group) group.add(board);
+      box(board, 0, y - 0.03, face * 0.28, length - 0.12, 0.05, 0.52, mats.woodLight);
     }
   }
-  function bakery() {
-    const { x, z, w, d, top } = BAKERY;
-    box(scene, x, top / 2, z, w, top - 0.1, d, mats.wood);
-    box(scene, x, top - 0.05, z, w + 0.1, 0.1, d + 0.1, mats.woodLight);
-    signPlane(scene, 'BAKERY', x, top + 0.42, z - 0.3, 1.3, 0.36, { background: '#875a38', foreground: '#fff0d2', accent: '#e1b276', fontSize: 52, width: 512, height: 96 });
-    box(scene, x, top + 0.18, z - 0.3, 0.05, 0.4, 0.05, mats.dark);
+  function buildBin(group) {
+    box(group, 0, 0.18, 0, BIN_SIZE, 0.36, BIN_SIZE, mats.wood);
+    box(group, 0, 0.42, 0.62, 1.34, 0.3, 0.08, mats.woodLight);                    // the low lip on the aisle side
+    box(group, 0, 0.55, -0.61, 1.34, 0.9, 0.1, mats.woodLight);                    // the tall back
+    box(group, 0, 0.4, -0.04, 1.14, 0.04, 1.12, mats.woodDark);
+  }
+  function buildTable(group, piece) {
+    box(group, 0, BAKERY_TOP / 2, 0, piece.w, BAKERY_TOP - 0.1, piece.d, mats.wood);
+    box(group, 0, BAKERY_TOP - 0.05, 0, piece.w + 0.1, 0.1, piece.d + 0.1, mats.woodLight);
+    signPlane(group, 'BAKERY', 0, BAKERY_TOP + 0.42, -0.3, 1.3, 0.36, { background: '#875a38', foreground: '#fff0d2', accent: '#e1b276', fontSize: 52, width: 512, height: 96 });
+    box(group, 0, BAKERY_TOP + 0.18, -0.3, 0.05, 0.4, 0.05, mats.dark);
+  }
+  function buildCooler(group, piece) {
+    const { w: cw, d: cd } = piece, ch = COOLER_HEIGHT;
+    // The compressor plinth is set back from the glass, and the back panel stands a centimeter off the wall, so no two faces share a plane.
+    box(group, 0, 0.15, -0.025, cw + 0.06, 0.3, cd - 0.05, mats.steelDark);
+    box(group, 0, ch / 2 + 0.15, -cd / 2 + 0.05, cw, ch, 0.08, std('#cfd8d8', { roughness: 0.5 }));
+    box(group, 0, ch + 0.2, 0, cw + 0.1, 0.16, cd + 0.06, mats.steelDark);          // the canopy
+    box(group, 0, ch + 0.05, cd / 2 - 0.06, cw, 0.05, 0.05, mats.led, { castShadow: false });
+    const posts = Math.max(2, Math.round(cw / 1.4) + 1);
+    for (let i = 0; i < posts; i++) box(group, -cw / 2 + (cw * i) / (posts - 1), ch / 2 + 0.15, cd / 2 - 0.02, 0.08, ch, 0.1, mats.metal);
+    for (const level of COOLER_LEVELS) box(group, 0, level - 0.03, 0, cw - 0.06, 0.05, 0.84, mats.metal);
+    box(group, 0, (0.3 + ch + 0.1) / 2, cd / 2 - 0.02, cw - 0.04, ch - 0.2, 0.04, mats.glass, { castShadow: false });
+    signPlane(group, piece.label, 0, ch + 0.2, cd / 2 + 0.04, Math.min(3, cw - 0.3), 0.3, coolerStyle);
+  }
+  function buildPieces() {
+    for (const piece of PIECES) {
+      const group = new GFX.Group(); scene.add(group); pieceViews.set(piece.id, group);
+      if (!piece.always) { group.visible = false; for (const id of piece.fixtures) forFixture(id, group); }
+      if (piece.type === 'gondola') buildGondola(group, piece);
+      else if (piece.type === 'bin') buildBin(group);
+      else if (piece.type === 'table') buildTable(group, piece);
+      else buildCooler(group, piece);
+    }
   }
   function checkout() {
     const { x, z, w, d, top } = COUNTER;
@@ -498,7 +470,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
     box(scene, f.pallet.x, 0.07, f.pallet.z, f.pallet.w, 0.14, f.pallet.d, mats.woodDark);
     signPlane(scene, 'RECEIVING', f.desk.x, 1.9, f.desk.z - 0.38, 1.4, 0.3, { background: '#3d5148', foreground: '#f4e9d1', accent: '#d6b578', fontSize: 42, width: 512, height: 80 });
   }
-  gondola(); coolers(); produceBins(); purchasableFixtures(); bakery(); checkout(); backroom();
+  buildPieces(); checkout(); backroom();
 
   // The models were being sculpted in workers all this while: wait for the first wave before standing any of them up,
   // so nothing is baked on the page's own thread. (No workers, or a slow bake: it falls back to baking here.)

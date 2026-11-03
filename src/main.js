@@ -9,6 +9,7 @@ import {
   trafficLabel, reviewSummary,
 } from './sim.js';
 import { createBodegaWorld } from './world.js';
+import { LOCAL_PRODUCTS } from './layout.js';
 
 const $ = (selector) => document.querySelector(selector);
 const panel = $('#panel-content');
@@ -343,19 +344,19 @@ function expansionPanel() {
   const pieces = standingPieces(state);
   const placing = world?.placement?.active;
   const moveRows = pieces.map(({ piece, x, z }) => {
-    const names = piece.fixtures.filter((f) => state.fixtures.includes(f)).flatMap((f) => FIXTURE_BY_ID[f].products).map((id) => PRODUCT_BY_ID[id].short).join(' · ');
-    const kind = piece.type === 'bin' ? 'Produce bin' : piece.type === 'cooler' ? 'Reach-in cooler' : 'Snack gondola';
+    const here = LOCAL_PRODUCTS(piece.id).map((id) => PRODUCT_BY_ID[id]).filter((p) => !p.fixture || state.fixtures.includes(p.fixture));
+    const names = here.map((p) => p.short).join(' · ');
     return `<div class="order-row">
-      <span class="product-swatch" style="--swatch:${PRODUCT_BY_ID[FIXTURE_BY_ID[piece.fixtures[0]].products[0]].color}"></span>
-      <span class="order-product"><strong>${kind}</strong><small>${escapeHtml(names)}</small><small>at ${x.toFixed(1)}, ${z.toFixed(1)}</small></span>
+      <span class="product-swatch" style="--swatch:${here[0]?.color ?? '#65716c'}"></span>
+      <span class="order-product"><strong>${escapeHtml(piece.name)}</strong><small>${escapeHtml(names)}</small><small>at ${x.toFixed(1)}, ${z.toFixed(1)}</small></span>
       <span class="order-controls"><button class="mini-order-button" data-action="move-fixture" data-piece="${piece.id}" ${placing ? 'disabled' : ''}>${placing === piece.id ? 'MOVING…' : 'MOVE'}</button></span>
     </div>`;
   }).join('');
   const rearrange = pieces.length ? `<div class="order-category"><div class="order-category-title">Rearrange<span>${pieces.length} PLACED</span></div>${placing ? `<div class="order-row"><span class="order-product"><strong>Click the floor to put it down</strong><small>R turns it · Esc cancels · green is clear, red is not. Shelves and bins stand clear of walls so both sides can be reached; coolers go flat against one.</small></span><span class="order-controls"><button class="mini-order-button" data-action="rotate-fixture">TURN</button><button class="mini-order-button" data-action="cancel-fixture">CANCEL</button></span></div>` : ''}${moveRows}</div>` : '';
   return `
     <div class="panel-section order-intro">
-      <div class="section-heading"><div><div class="eyebrow">GROW THE RANGE</div><h3>Shelves, bins and coolers</h3></div><span class="tag tag-muted">LEVEL ${level}</span></div>
-      <p class="product-description">A new line needs its tier opened by your store level and somewhere to stand. Buy the fixture with register cash and it goes in at once.</p>
+      <div class="section-heading"><div><div class="eyebrow">GROW THE RANGE</div><h3>Rearrange the shop</h3></div><span class="tag tag-muted">LEVEL ${level}</span></div>
+      <p class="product-description">Move anything on the floor: shelves, bins, the bakery table and the coolers. New lines need their tier opened by your store level and somewhere to stand, so buy a fixture with register cash below and it goes in at once.</p>
     </div>
     <div class="order-catalog"><div class="order-category"><div class="order-category-title">Tiers<span>${TIERS.length}</span></div>${tiers}</div>
     ${rearrange}<div class="order-category"><div class="order-category-title">Fixtures<span>${FIXTURES.filter((f) => fixtureBlock(state, f.id) === 'owned').length} / ${FIXTURES.length} BOUGHT</span></div>${rows}</div></div>`;
