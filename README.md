@@ -49,7 +49,7 @@ The Madness Engine dependency is pinned to a specific commit so character, textu
 
 ## Controls
 
-Drag the 3D shop to orbit the camera; use the mouse wheel to zoom; the WALLS button chooses whether near walls fade (Auto), stay solid or are always ghosted. Move the owner with WASD or arrow keys; hold Shift to hurry. On touch layouts, use the on-screen directional pad. The 1× / 2× / 3× controls change simulation speed. The pause button freezes the business clock. Use the tabs on the right to manage stock, supplier orders, finance, and staff.
+Click and hold the middle mouse button (the wheel) and drag to orbit the camera (on a touch screen, drag with a finger); use the mouse wheel to zoom; the WALLS button chooses whether near walls fade (Auto), stay solid or are always ghosted. Move the owner with WASD or arrow keys; hold Shift to hurry. On touch layouts, use the on-screen directional pad. The 1× / 2× / 3× controls change simulation speed. The pause button freezes the business clock. Use the tabs on the right to manage stock, supplier orders, finance, and staff.
 
 ## Project layout
 

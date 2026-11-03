@@ -6,7 +6,7 @@ import { createBakeLibrary } from 'madness-engine/models/bake';
 import { floorTexture, wallTexture } from 'madness-engine/textures/venue';
 import { paintRoom } from 'madness-engine/textures/rooms/town';
 import { paintSky } from 'madness-engine/textures/skies/haze';
-import { screenMovementToWorld } from './controls.js';
+import { screenMovementToWorld, startsCameraDrag, holdsCameraDrag, endsCameraDrag } from './controls.js';
 import { PRODUCTS, CAT_ROSTER, STAFF, PRODUCT_BY_ID, RESIDENTS, RESIDENT_BY_ID, shelfQuantity, stockroomQuantity, activeFrameDelta } from './sim.js';
 import {
   SHELL, FRONT_DOOR, REAR_DOOR, BACKROOM, SIDEWALK, LEVELS, GONDOLA, COOLER_LEVELS, COOLERS, PRODUCE_X, PRODUCE_Z, BAKERY, COUNTER,
@@ -215,9 +215,13 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
 
   // ——— the ground: street, sidewalk, alley ———
   box(scene, 0, -0.55, 0, 140, 0.4, 140, mats.asphalt, { castShadow: false });
-  box(scene, 0, -0.15, 8.675, 60, 0.3, SIDEWALK.maxZ - SIDEWALK.minZ + 0.3, mats.sidewalk, { castShadow: false });      // the sidewalk
-  box(scene, 0, -0.1, 10.45, 60, 0.4, 0.3, mats.concrete, { castShadow: false });                                      // the curb
-  box(scene, 0, -0.145, -11, 60, 0.3, 8.2, mats.sidewalk, { castShadow: false });                                       // the alley behind
+  const sidewalkFar = SIDEWALK.maxZ + 0.15;
+  box(scene, 0, -0.15, (SIDEWALK.minZ + sidewalkFar) / 2, 60, 0.3, sidewalkFar - SIDEWALK.minZ, mats.sidewalk, { castShadow: false });   // the sidewalk, from the wall to the curb
+  box(scene, 0, -0.13, 10.45, 60, 0.46, 0.3, mats.concrete, { castShadow: false });                                    // the curb, down to the road
+  box(scene, 0, -0.15, -11.15, 60, 0.3, 8, mats.sidewalk, { castShadow: false });                                       // the alley behind
+  // A threshold in each doorway, a hair proud of the floor and the pavement it joins, so they never share a plane.
+  box(scene, 2.4, -0.094, 7, 1.5, 0.2, 0.3, mats.concrete, { castShadow: false });
+  box(scene, -5.7, -0.094, -7, 1.3, 0.2, 0.3, mats.concrete, { castShadow: false });
   for (let x = -27; x <= 27; x += 4.5) box(scene, x, -0.345, 14, 2.2, 0.02, 0.2, mats.paint, { castShadow: false, receiveShadow: false });
 
   // ——— the floor ———
@@ -226,7 +230,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   floorMap.colorSpace = GFX.SRGBColorSpace; floorMap.wrapS = floorMap.wrapT = GFX.RepeatWrapping; floorMap.repeat.set(9, 7);
   const floorBump = new GFX.CanvasTexture(floorTex.bump.image);
   floorBump.wrapS = floorBump.wrapT = GFX.RepeatWrapping; floorBump.repeat.set(9, 7);
-  box(scene, 0, -0.16, 0, 18.3, 0.3, 14.3, new GFX.MeshStandardMaterial({ color: '#b8b0a0', map: floorMap, bumpMap: floorBump, bumpScale: 0.08, roughness: 0.82 }), { castShadow: false });
+  box(scene, 0, -0.15, 0, 18.2, 0.3, 14.2, new GFX.MeshStandardMaterial({ color: '#b8b0a0', map: floorMap, bumpMap: floorBump, bumpScale: 0.08, roughness: 0.82 }), { castShadow: false });
   const br = BACKROOM;
   box(scene, (br.minX + br.maxX) / 2, 0.006, (br.minZ + br.maxZ) / 2, br.maxX - br.minX, 0.014, br.maxZ - br.minZ, mats.concrete, { castShadow: false });   // the backroom's concrete
   box(scene, FRONT_DOOR.x, 0.01, 6.2, 1.6, 0.02, 0.9, mats.rubber, { castShadow: false });                                                                 // the doormat
@@ -239,12 +243,14 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   // Always visible, so the footprint reads even when the walls are ghosts: a low brick plinth round the building.
   const plinth = new GFX.Group(); scene.add(plinth);
   const plinthMat = new GFX.MeshStandardMaterial({ color: '#8f8576', map: wallMap, bumpMap: wallBump, bumpScale: 0.09, roughness: 0.9 });
+  // The plinth stands 3 cm proud of the wall on each side, so its faces are never in the wall's plane.
   const plinthBox = (x, z, bw, bd) => { const mesh = new GFX.Mesh(new GFX.BoxGeometry(bw, 0.34, bd), plinthMat); scaleBrickUV(mesh.geometry, bw, 0.34, bd); mesh.position.set(x, 0.17, z); mesh.castShadow = true; mesh.receiveShadow = true; plinth.add(mesh); };
-  plinthBox(0, -(Z + T / 2 - 0.15), W * 2 + T * 2, T);
-  plinthBox(-(W + T / 2 - 0.15), 0, T, Z * 2);
-  plinthBox(W + T / 2 - 0.15, 0, T, Z * 2);
-  plinthBox((-W - 0.3 + dl) / 2, Z + T / 2 - 0.15, dl + W + 0.3, T);
-  plinthBox((dr + W + 0.3) / 2, Z + T / 2 - 0.15, W + 0.3 - dr, T);
+  const PL = 0.06;
+  plinthBox(0, -(Z + T / 2 - 0.15), W * 2 + T * 2 + PL, T + PL);
+  plinthBox(-(W + T / 2 - 0.15), 0, T + PL, Z * 2);
+  plinthBox(W + T / 2 - 0.15, 0, T + PL, Z * 2);
+  plinthBox((-W - 0.3 - PL + dl) / 2, Z + T / 2 - 0.15, dl + W + 0.3 + PL, T + PL);
+  plinthBox((dr + W + 0.3 + PL) / 2, Z + T / 2 - 0.15, W + 0.3 + PL - dr, T + PL);
 
   // Front: a storefront. Brick bulkhead, piers, a header with the sign, glass between, a glass door.
   const front = wall('front', { normal: [0, 1] });
@@ -285,7 +291,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   leafPart(-leafW + 0.22, 1.05, 0.05, 0.5, 0.1, 'metal', () => std('#c9ced1', { metalness: 0.8, roughness: 0.3 }));       // the push bar
   // The awning over the windows, and the sign above it.
   for (let i = 0; i < 18; i++) {
-    const stripe = front.box(-W + 0.5 + i * ((W * 2 - 1) / 17), 3.55, Z + 0.95, (W * 2 - 1) / 17 + 0.01, 0.06, 2.1, i % 2 ? 'awnA' : 'awnB', () => std(i % 2 ? '#e9e3d0' : '#2f6b57', { roughness: 0.9 }), { rotation: [0.36, 0, 0] });
+    const stripe = front.box(-W + 0.5 + i * ((W * 2 - 1) / 17), 3.55, Z + 0.95, (W * 2 - 1) / 17 + 0.003, 0.06, 2.1, i % 2 ? 'awnA' : 'awnB', () => std(i % 2 ? '#e9e3d0' : '#2f6b57', { roughness: 0.9 }), { rotation: [0.36, 0, 0] });
     stripe.castShadow = true;
   }
   front.plane('BODEGA', 0, 4.0, Z + 0.17, 7.4, 0.8, { background: '#1d2c2f', foreground: '#f6e8ca', accent: '#e07355', fontSize: 70, width: 1024, height: 112 });
@@ -365,7 +371,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   const shelfLabels = new Map();
   function gondola() {
     const { x, z, length, depth, height } = GONDOLA;
-    box(scene, x, 0.16, z, length, 0.22, depth + 0.1, mats.dark);
+    box(scene, x, 0.16, z, length + 0.06, 0.22, depth + 0.1, mats.dark);
     for (const sx of [-1, 1]) box(scene, x + sx * (length / 2 - 0.05), height / 2, z, 0.1, height, depth, mats.metal);
     box(scene, x, height / 2, z, length - 0.2, height - 0.1, 0.08, mats.steelDark);
     for (const level of LEVELS) for (const s of [-1, 1]) box(scene, x, level - 0.03, z + s * 0.28, length - 0.12, 0.05, 0.52, mats.woodLight);
@@ -375,7 +381,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   function coolers() {
     const { zBack, depth, height, sections } = COOLERS;
     const x0 = sections[0].x0, x1 = sections.at(-1).x1;
-    box(scene, (x0 + x1) / 2, 0.15, zBack + depth / 2, x1 - x0, 0.3, depth, mats.steelDark);                      // compressor plinth
+    box(scene, (x0 + x1) / 2, 0.15, zBack + depth / 2, x1 - x0 + 0.06, 0.3, depth, mats.steelDark);                // compressor plinth
     box(scene, (x0 + x1) / 2, height / 2 + 0.15, zBack + 0.04, x1 - x0, height, 0.08, std('#cfd8d8', { roughness: 0.5 }));
     box(scene, (x0 + x1) / 2, height + 0.2, zBack + depth / 2, x1 - x0 + 0.1, 0.16, depth + 0.06, mats.steelDark);   // the canopy
     box(scene, (x0 + x1) / 2, height + 0.05, zBack + depth - 0.06, x1 - x0, 0.05, 0.05, mats.led, { castShadow: false });
@@ -392,8 +398,8 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
     PRODUCE_Z.forEach((z) => {
       const group = new GFX.Group(); group.position.set(PRODUCE_X, 0, z); scene.add(group);
       box(group, 0, 0.18, 0, 1.3, 0.36, 1.3, mats.wood);
-      box(group, 0.62, 0.42, 0, 0.08, 0.3, 1.3, mats.woodLight);                       // the low lip on the aisle side
-      box(group, -0.6, 0.55, 0, 0.1, 0.9, 1.3, mats.woodLight);                       // the tilted back
+      box(group, 0.62, 0.42, 0, 0.08, 0.3, 1.34, mats.woodLight);                      // the low lip on the aisle side
+      box(group, -0.61, 0.55, 0, 0.1, 0.9, 1.34, mats.woodLight);                      // the tall back
       box(group, -0.04, 0.4, 0, 1.12, 0.04, 1.14, mats.woodDark);
     });
   }
@@ -868,22 +874,27 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
     if (stage.lantern) stage.lantern.intensity = 1.1 + Math.sin(realTime * 0.8) * 0.04;
   }
 
-  // ——— camera: drag to orbit, wheel to zoom ———
+  // ——— camera: middle-button drag to orbit (a finger on touch screens), wheel to zoom ———
   let dragging = null;
   host.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0) return;
+    if (!startsCameraDrag(event)) return;
+    event.preventDefault();
     dragging = { id: event.pointerId, x: event.clientX, y: event.clientY };
     host.setPointerCapture?.(event.pointerId);
   });
   host.addEventListener('pointermove', (event) => {
     if (!dragging || dragging.id !== event.pointerId) return;
+    if (!holdsCameraDrag(event)) { dragging = null; return; }                 // the button was let go somewhere we didn't see
     const dx = event.clientX - dragging.x, dy = event.clientY - dragging.y;
     dragging.x = event.clientX; dragging.y = event.clientY;
     stage.view.turn(-dx * 0.006, dy * 0.0038);
   });
-  const stopDrag = () => { dragging = null; };
+  const stopDrag = (event) => { if (dragging && dragging.id === event.pointerId && endsCameraDrag(event)) dragging = null; };
   host.addEventListener('pointerup', stopDrag);
-  host.addEventListener('pointercancel', stopDrag);
+  host.addEventListener('pointercancel', (event) => { if (dragging?.id === event.pointerId) dragging = null; });
+  // Keep the browser's own middle-click behavior (autoscroll, paste) off the scene.
+  host.addEventListener('mousedown', (event) => { if (event.button === 1) event.preventDefault(); });
+  host.addEventListener('auxclick', (event) => { if (event.button === 1) event.preventDefault(); });
   host.addEventListener('wheel', (event) => {
     event.preventDefault();
     stage.view.zoomBy(Math.exp(event.deltaY * 0.001));
