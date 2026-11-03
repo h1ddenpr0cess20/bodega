@@ -326,7 +326,6 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
     const windows = sx < 0 ? [1.4, 4.4] : [-3.4, -0.6];
     for (const z of windows) fakeWindow(w, { cx: wx - sx * 0.17, cy: 2.2, cz: z, w: 1.7, h: 1.5, axis: 'z' });
   }
-  left.plane('FRESH PRODUCE', -W + 0.2, 3.35, 2.45, 3.6, 0.5, { background: '#35533c', foreground: '#f6edcf', accent: '#c8d19a', fontSize: 52, width: 768, height: 104 }, Math.PI / 2);
   right.plane('NEXT PLEASE', W - 0.2, 3.3, COUNTER.z, 2.6, 0.5, { background: '#354b47', foreground: '#f0e7cf', accent: '#d9a55f', fontSize: 52, width: 768, height: 104 }, -Math.PI / 2);
 
   // The backroom's own walls, shorter than the shell: they hide the room from either side, so they fade from both.
@@ -403,6 +402,8 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
     box(group, 0, 0.42, 0.62, 1.34, 0.3, 0.08, mats.woodLight);                    // the low lip on the aisle side
     box(group, 0, 0.55, -0.61, 1.34, 0.9, 0.1, mats.woodLight);                    // the tall back
     box(group, 0, 0.4, -0.04, 1.14, 0.04, 1.12, mats.woodDark);
+    // A sign on the tall back, so it goes where the bin goes.
+    signPlane(group, 'FRESH PRODUCE', 0, 0.86, -0.555, 1.0, 0.2, { background: '#35533c', foreground: '#f6edcf', accent: '#c8d19a', fontSize: 44, width: 768, height: 104 }, { singleSided: true });
   }
   function buildTable(group, piece) {
     box(group, 0, BAKERY_TOP / 2, 0, piece.w, BAKERY_TOP - 0.1, piece.d, mats.wood);
@@ -1093,7 +1094,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   library.preload(background);
 
   const world = {
-    stage, scene, cats, staffModels, player, displayGroups, update, wallGroups, placement: placementApi, selection: { get id() { return selection.id; }, select: (id) => setSelected(id, { notify: false }), set onSelect(fn) { selection.onSelect = fn; }, set onPickUp(fn) { selection.onPickUp = fn; } },
+    stage, scene, cats, staffModels, player, displayGroups, update, wallGroups, placement: placementApi, pieceAt: (x, y) => ({ piece: pieceAtPointer({ clientX: x, clientY: y }), floor: floorAt({ clientX: x, clientY: y }) }), selection: { get id() { return selection.id; }, select: (id) => setSelected(id, { notify: false }), set onSelect(fn) { selection.onSelect = fn; }, set onPickUp(fn) { selection.onPickUp = fn; } },
     get wallMode() { return wallMode; },
     setWallMode(mode) { if (WALL_MODES.includes(mode)) wallMode = mode; return wallMode; },
     cycleWallMode() { wallMode = WALL_MODES[(WALL_MODES.indexOf(wallMode) + 1) % WALL_MODES.length]; return wallMode; },
