@@ -606,7 +606,8 @@ document.addEventListener('click', (event) => {
     window.location.reload();
     return;
   }
-  if (action && action !== 'next-day' && action !== 'restart') renderPanel();
+  // Buying, ordering and the like happen in place: keep the list where it is rather than jumping back to the top.
+  if (action && action !== 'next-day' && action !== 'restart') renderPanel({ preserveScroll: true });
   updateHeader();
   world.setState(state);
 });
