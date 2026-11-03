@@ -12,7 +12,7 @@ import { PRODUCTS, CAT_ROSTER, STAFF, PRODUCT_BY_ID, RESIDENTS, RESIDENT_BY_ID, 
 import {
   SHELL, FRONT_DOOR, REAR_DOOR, BACKROOM, SIDEWALK, LEVELS, GONDOLA, COOLER_LEVELS, COOLER_HEIGHT, BAKERY_TOP, COUNTER,
   BACKBAR, BACKROOM_FIXTURES, SLOTS, DOOR_IN, SIDEWALK_SPAWN, SIDEWALK_EXITS, CHECKOUT, LOU_HOME, MARISOL_HOME, MANAGER_HOME, PLAYER_HOME,
-  GONDOLA_2_BOARDS, BIN_SIZE, PIECES, PIECE_BY_ID, placementOf, setLayout, footprint, snapPlacement, placementProblem,
+  GONDOLA_2_BOARDS, BIN_SIZE, PIECES, PIECE_BY_ID, pieceOfProduct, isStanding, placementOf, setLayout, footprint, snapPlacement, placementProblem,
   CAT_PATROLS, navBlocked, nearestWalkable, findWalkPath, planWalkRoute, routeLength, pointOnRoute,
 } from './layout.js';
 import { wallOpacity, easeOpacity, WALL_MODES } from './walls.js';
@@ -377,6 +377,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   // Everything that stands on the floor and can be moved (layout.js PIECES): each is built in its own frame, facing +z, and
   // stood where the layout says. The ones that are bought stay unseen until they are.
   const pieceViews = new Map();
+  const pieceOfGroup = new Map();
   const fixtureViews = new Map();
   const forFixture = (id, object) => { object.visible = false; if (!fixtureViews.has(id)) fixtureViews.set(id, []); fixtureViews.get(id).push(object); return object; };
   const signStyle = { background: '#33464c', foreground: '#f4e9d1', accent: '#d16f53', fontSize: 34, width: 768, height: 96 };
@@ -424,7 +425,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   }
   function buildPieces() {
     for (const piece of PIECES) {
-      const group = new GFX.Group(); scene.add(group); pieceViews.set(piece.id, group);
+      const group = new GFX.Group(); scene.add(group); pieceViews.set(piece.id, group); pieceOfGroup.set(group, piece.id);
       if (!piece.always) { group.visible = false; for (const id of piece.fixtures) forFixture(id, group); }
       if (piece.type === 'gondola') buildGondola(group, piece);
       else if (piece.type === 'bin') buildBin(group);
@@ -804,6 +805,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
     const key = owned.join(',') + JSON.stringify(layout);
     if (key === fixtureKey) return;
     fixtureKey = key;
+    selection.state = state;
     setLayout(owned, layout);
     for (const views of fixtureViews.values()) for (const view of views) view.visible = false;
     for (const piece of PIECES) {
@@ -816,6 +818,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
       const slot = SLOTS[id];
       display.group.position.set(slot.x, slot.y, slot.z); display.group.rotation.y = slot.yaw;
     }
+    drawSelection();
   }
 
   function syncDisplays(state) {
@@ -953,10 +956,10 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
     start(pieceId, state) {
       const p = placementOf(pieceId, state.layout);
       Object.assign(placing, { pieceId, state, rot: p.rot, at: { x: p.x, z: p.z }, target: p, problem: null });
-      refreshGhost();
+      drawSelection(); refreshGhost();
     },
     rotate() { if (placing.pieceId) { placing.rot = (placing.rot + 1) % 4; refreshGhost(); } },
-    cancel() { placing.pieceId = null; placing.at = null; ghost.visible = false; },
+    cancel() { placing.pieceId = null; placing.at = null; ghost.visible = false; drawSelection(); },
     get active() { return placing.pieceId; },
     get problem() { return placing.problem; },
     onPlace: null,
@@ -968,6 +971,56 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
     placing.at = at; refreshGhost();
     if (placementApi.onPlace?.(placing.pieceId, placing.target) === true) placementApi.cancel();
   }
+  // ——— selecting: click a piece to pick it out, click it again to pick it up ———
+  const selectMaterial = new GFX.MeshBasicMaterial({ color: '#e6b95a', transparent: true, opacity: 0.55, depthWrite: false });
+  const selectMarker = new GFX.Mesh(new GFX.BoxGeometry(1, 0.06, 1), selectMaterial); selectMarker.visible = false; scene.add(selectMarker);
+  const selection = { id: null, onSelect: null, onPickUp: null };
+  function drawSelection() {
+    const piece = selection.id && PIECE_BY_ID[selection.id];
+    if (!piece || placing.pieceId) { selectMarker.visible = false; return; }
+    const box = footprint(piece, placementOf(piece.id));
+    selectMarker.scale.set(box.w + 0.2, 1, box.d + 0.2);
+    selectMarker.position.set(box.x, 0.03, box.z);
+    selectMarker.visible = true;
+  }
+  function setSelected(id, { notify = true } = {}) {
+    selection.id = id;
+    drawSelection();
+    if (notify) selection.onSelect?.(id);
+  }
+  /** The piece under a pointer: what the ray hits first, or failing that, the piece standing where it meets the floor. */
+  function pieceAtPointer(event) {
+    const r = host.getBoundingClientRect();
+    raycaster.setFromCamera({ x: ((event.clientX - r.left) / r.width) * 2 - 1, y: -((event.clientY - r.top) / r.height) * 2 + 1 }, stage.camera);
+    try {
+      const targets = [];
+      for (const [group] of pieceOfGroup) if (group.visible) targets.push(group);
+      for (const display of displayGroups.values()) if (display.group.visible) targets.push(display.group);
+      for (const hit of raycaster.intersectObjects(targets, true)) {
+        if (hit.object.visible === false) continue;
+        for (let node = hit.object; node; node = node.parent) {
+          if (pieceOfGroup.has(node)) return pieceOfGroup.get(node);
+          const display = [...displayGroups.values()].find((d) => d.group === node);
+          if (display) return pieceOfProduct(display.product.id);
+        }
+      }
+    } catch { /* fall back to the floor */ }
+    const at = floorAt(event);
+    if (!at) return null;
+    const owned = new Set(selection.state?.fixtures ?? []);
+    for (const piece of PIECES) {
+      if (!isStanding(piece, owned)) continue;
+      const box = footprint(piece, placementOf(piece.id));
+      if (Math.abs(at.x - box.x) <= box.w / 2 + 0.15 && Math.abs(at.z - box.z) <= box.d / 2 + 0.15) return piece.id;
+    }
+    return null;
+  }
+  function pickAt(event) {
+    const id = pieceAtPointer(event);
+    if (id && id === selection.id) selection.onPickUp?.(id);
+    else setSelected(id);
+  }
+
   let tap = null;
   host.addEventListener('pointermove', (event) => {
     if (!placing.pieceId) return;
@@ -975,17 +1028,25 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
     const at = floorAt(event);
     if (at) { placing.at = at; refreshGhost(); }
   });
-  host.addEventListener('pointerdown', (event) => { if (placing.pieceId && event.button === 0) tap = { x: event.clientX, y: event.clientY }; });
+  host.addEventListener('pointerdown', (event) => { if (event.button === 0) tap = { x: event.clientX, y: event.clientY }; });
   host.addEventListener('pointerup', (event) => {
-    if (!placing.pieceId || !tap) return;
+    if (!tap) return;
     const moved = Math.hypot(event.clientX - tap.x, event.clientY - tap.y);
     tap = null;
-    if (moved < 6 && event.button === 0) dropAt(event);
+    if (moved >= 6 || event.button !== 0) return;
+    if (placing.pieceId) dropAt(event); else pickAt(event);
   });
   window.addEventListener('keydown', (event) => {
-    if (!placing.pieceId) return;
-    if (event.key === 'r' || event.key === 'R') { placementApi.rotate(); event.preventDefault(); }
-    else if (event.key === 'Escape') { placementApi.cancel(); placementApi.onCancel?.(); }
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    const el = document.activeElement;
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
+    if (placing.pieceId) {
+      if (event.key === 'r' || event.key === 'R') { placementApi.rotate(); event.preventDefault(); }
+      else if (event.key === 'Escape') { placementApi.cancel(); drawSelection(); placementApi.onCancel?.(); }
+    } else if (selection.id) {
+      if (event.key === 'm' || event.key === 'M') { selection.onPickUp?.(selection.id); event.preventDefault(); }
+      else if (event.key === 'Escape') setSelected(null);
+    }
   });
 
   // ——— camera: middle-button drag to orbit (a finger on touch screens), wheel to zoom ———
@@ -1032,7 +1093,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   library.preload(background);
 
   const world = {
-    stage, scene, cats, staffModels, player, displayGroups, update, wallGroups, placement: placementApi,
+    stage, scene, cats, staffModels, player, displayGroups, update, wallGroups, placement: placementApi, selection: { get id() { return selection.id; }, select: (id) => setSelected(id, { notify: false }), set onSelect(fn) { selection.onSelect = fn; }, set onPickUp(fn) { selection.onPickUp = fn; } },
     get wallMode() { return wallMode; },
     setWallMode(mode) { if (WALL_MODES.includes(mode)) wallMode = mode; return wallMode; },
     cycleWallMode() { wallMode = WALL_MODES[(WALL_MODES.indexOf(wallMode) + 1) % WALL_MODES.length]; return wallMode; },

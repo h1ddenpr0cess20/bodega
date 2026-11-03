@@ -103,6 +103,9 @@ const LOCAL_SLOTS = (() => {
   return out;
 })();
 
+/** The piece a product stands on. */
+export const pieceOfProduct = (productId) => LOCAL_SLOTS[productId]?.[0] ?? null;
+
 /** The products that stand on a piece. */
 export const LOCAL_PRODUCTS = (pieceId) => Object.entries(LOCAL_SLOTS).filter(([, [piece]]) => piece === pieceId).map(([id]) => id);
 

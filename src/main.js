@@ -22,6 +22,7 @@ window.__bodegaState = state;
 
 let currentTab = 'overview';
 let selectedProduct = 'milk';
+let selectedPiece = null;
 let stockFilter = 'All';
 let stockSearch = '';
 let audioMuted = false;
@@ -59,6 +60,19 @@ try {
     return false;
   };
   world.placement.onCancel = () => renderPanel({ preserveScroll: true });
+  // Clicking a piece in the shop picks it out and opens the Floor tab; clicking it again, or pressing M, picks it up.
+  world.selection.onSelect = (id) => {
+    selectedPiece = id;
+    if (id) currentTab = 'floor';
+    renderPanel({ preserveScroll: !id });
+  };
+  world.selection.onPickUp = (id) => {
+    if (world.placement.active) return;
+    selectedPiece = id;
+    world.placement.start(id, state);
+    notify('Click the floor to put it down. R turns it, Esc cancels.', 'info');
+    renderPanel({ preserveScroll: true });
+  };
   updateLoading('Everything is ready. Welcome to the block.', 100);
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   $('#loading-overlay')?.classList.add('loading-finished');
@@ -346,9 +360,10 @@ function expansionPanel() {
   const moveRows = pieces.map(({ piece, x, z }) => {
     const here = LOCAL_PRODUCTS(piece.id).map((id) => PRODUCT_BY_ID[id]).filter((p) => !p.fixture || state.fixtures.includes(p.fixture));
     const names = here.map((p) => p.short).join(' · ');
-    return `<div class="order-row">
+    const picked = selectedPiece === piece.id;
+    return `<div class="order-row" ${picked ? 'style="outline:1px solid var(--gold);outline-offset:-1px"' : ''}>
       <span class="product-swatch" style="--swatch:${here[0]?.color ?? '#65716c'}"></span>
-      <span class="order-product"><strong>${escapeHtml(piece.name)}</strong><small>${escapeHtml(names)}</small><small>at ${x.toFixed(1)}, ${z.toFixed(1)}</small></span>
+      <span class="order-product"><strong>${escapeHtml(piece.name)}${picked ? ' · SELECTED' : ''}</strong><small>${escapeHtml(names)}</small><small>at ${x.toFixed(1)}, ${z.toFixed(1)}</small></span>
       <span class="order-controls"><button class="mini-order-button" data-action="move-fixture" data-piece="${piece.id}" ${placing ? 'disabled' : ''}>${placing === piece.id ? 'MOVING…' : 'MOVE'}</button></span>
     </div>`;
   }).join('');
@@ -356,7 +371,7 @@ function expansionPanel() {
   return `
     <div class="panel-section order-intro">
       <div class="section-heading"><div><div class="eyebrow">GROW THE RANGE</div><h3>Rearrange the shop</h3></div><span class="tag tag-muted">LEVEL ${level}</span></div>
-      <p class="product-description">Move anything on the floor: shelves, bins, the bakery table and the coolers. New lines need their tier opened by your store level and somewhere to stand, so buy a fixture with register cash below and it goes in at once.</p>
+      <p class="product-description">Click anything in the shop to select it (click it again, or press M, to pick it up), or use MOVE below. You can move shelves, bins, the bakery table and the coolers. New lines need their tier opened by your store level and somewhere to stand, so buy a fixture with register cash below and it goes in at once.</p>
     </div>
     <div class="order-catalog"><div class="order-category"><div class="order-category-title">Tiers<span>${TIERS.length}</span></div>${tiers}</div>
     ${rearrange}<div class="order-category"><div class="order-category-title">Fixtures<span>${FIXTURES.filter((f) => fixtureBlock(state, f.id) === 'owned').length} / ${FIXTURES.length} BOUGHT</span></div>${rows}</div></div>`;
@@ -558,6 +573,8 @@ document.addEventListener('click', (event) => {
     else notify(result.reason === 'insufficient-funds' ? `Short ${money(result.shortfall)} for that fixture.` : result.reason === 'level-too-low' ? `Opens at store level ${result.level}.` : 'That fixture could not be bought.', 'danger');
   }
   if (action === 'move-fixture') {
+    selectedPiece = button.dataset.piece;
+    world.selection.select(selectedPiece);
     world.placement.start(button.dataset.piece, state);
     notify('Click the floor to put it down. R turns it, Esc cancels.', 'info');
     renderPanel({ preserveScroll: true });
