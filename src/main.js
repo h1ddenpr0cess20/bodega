@@ -385,7 +385,6 @@ function ordersPanel() {
       <div class="supplier-credit"><span>AVAILABLE CASH</span><strong>${money(state.cash)}</strong><small>Credit is separate. Draw it on the Finance tab before ordering.</small></div>
     </div>
     <div class="order-catalog">${grouped}</div>
-    ${expansionPanel()}
     <div class="panel-section supplier-tip"><span class="tip-mark">✳</span><span><strong>BUY TO THE CLOCK.</strong><small>Produce and fresh meat turn quickly. Dry goods and canned food hold much longer.</small></span></div>`;
 }
 
@@ -476,6 +475,7 @@ function renderPanel({ preserveScroll = false } = {}) {
   if (currentTab === 'overview') panel.innerHTML = overviewPanel();
   else if (currentTab === 'shelves') panel.innerHTML = shelfPanel();
   else if (currentTab === 'orders') panel.innerHTML = ordersPanel();
+  else if (currentTab === 'floor') panel.innerHTML = expansionPanel();
   else if (currentTab === 'finance') panel.innerHTML = financePanel();
   else if (currentTab === 'staff') panel.innerHTML = staffPanel();
   else if (currentTab === 'reviews') panel.innerHTML = reviewsPanel();
@@ -667,7 +667,7 @@ function frame(now) {
   recordNewEvents();
   if (now - lastHeaderRender > 160) { updateHeader(); lastHeaderRender = now; }
   if (now - lastPanelRender > 900) {
-    if (currentTab === 'overview' || currentTab === 'staff' || currentTab === 'finance' || currentTab === 'orders' || (currentTab === 'shelves' && !$('#stock-search')?.matches(':focus'))) renderPanel({ preserveScroll: true });
+    if (currentTab === 'overview' || currentTab === 'staff' || currentTab === 'finance' || currentTab === 'orders' || currentTab === 'floor' || (currentTab === 'shelves' && !$('#stock-search')?.matches(':focus'))) renderPanel({ preserveScroll: true });
     renderDaySummary();
     lastPanelRender = now;
   }
