@@ -420,13 +420,11 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
     for (const piece of PIECES) {
       const group = new GFX.Group(); scene.add(group); pieceViews.set(piece.id, group);
       if (piece.type === 'bin') {
-        const lines = LOCAL_PRODUCTS(piece.id).length;
         forFixture(piece.id, group);
         box(group, 0, 0.18, 0, BIN_SIZE, 0.36, BIN_SIZE, mats.wood);
         box(group, 0, 0.42, 0.62, 1.34, 0.3, 0.08, mats.woodLight);                    // the low lip on the aisle side
         box(group, 0, 0.55, -0.61, 1.34, 0.9, 0.1, mats.woodLight);                    // the tall back
         box(group, 0, 0.4, -0.04, 1.14, 0.04, 1.12, mats.woodDark);
-        if (lines > 1) box(group, 0, 0.5, 0, 0.04, 0.2, 1.14, mats.woodDark);          // a divider between the two lines in the bin
       } else if (piece.type === 'gondola') {
         // The frame stands once any of its boards is bought, and each board when it is.
         const { length, depth, height } = GONDOLA_2;

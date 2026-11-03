@@ -41,7 +41,8 @@ export const BIN_SIZE = 1.3;
 export const FACE_REACH = 0.95;
 export const WALL_GAP = 0.3;
 export const PIECES = [
-  ...['bin-1', 'bin-2', 'bin-3'].map((id, i) => ({ id, type: 'bin', fixtures: [id], w: BIN_SIZE, d: BIN_SIZE, home: { x: -5.0, z: [-0.1, 1.35, 2.8][i], rot: 1 } })),
+  // Five produce bins, one for each new line: three in an island, two in a column beside it.
+  ...['bin-1', 'bin-2', 'bin-3', 'bin-4', 'bin-5'].map((id, i) => ({ id, type: 'bin', fixtures: [id], w: BIN_SIZE, d: BIN_SIZE, home: { x: i < 3 ? -5.0 : -1.8, z: [-0.1, 1.35, 2.8, 1.4, 2.9][i], rot: 1 } })),
   { id: 'gondola-2', type: 'gondola', fixtures: Object.keys(GONDOLA_2_BOARDS), w: GONDOLA_2.length, d: GONDOLA_2.depth, home: { x: 3.2, z: -2.4, rot: 0 } },
   ...['cooler-1', 'cooler-2'].map((id, i) => ({ id, type: 'cooler', fixtures: [id], w: REACH_COOLER.width, d: REACH_COOLER.depth, home: { x: INNER.maxX - REACH_COOLER.depth / 2, z: [-3.5, -1.7][i], rot: 3 } })),
 ];
@@ -99,10 +100,8 @@ export const SLOTS = slotsFor();
 /** Each movable product's place in its piece's own frame, before the piece is put anywhere: [piece, local slot]. */
 const LOCAL_SLOTS = (() => {
   const out = {};
-  const bin = (id, piece, lx, width) => { out[id] = [piece, { kind: 'bin', lx, y: 0.4, lz: 0, width, depth: 1.1, yaw: 0, stand: [lx, 1.6] }]; };
-  bin('oranges', 'bin-1', 0.31, 0.5); bin('carrots', 'bin-1', -0.31, 0.5);
-  bin('onions', 'bin-2', 0.31, 0.5); bin('peppers', 'bin-2', -0.31, 0.5);
-  bin('grapes', 'bin-3', 0, 1.1);
+  const bin = (id, piece) => { out[id] = [piece, { kind: 'bin', lx: 0, y: 0.4, lz: 0, width: 1.1, depth: 1.1, yaw: 0, stand: [0, 1.6] }]; };
+  bin('oranges', 'bin-1'); bin('carrots', 'bin-2'); bin('onions', 'bin-3'); bin('peppers', 'bin-4'); bin('grapes', 'bin-5');
   const G2 = { sugar: 'shelf-2', oats: 'shelf-3', peanutbutter: 'shelf-4', chips: 'shelf-5', cookies: 'shelf-6', candybar: 'shelf-7' };
   for (const [id, fixture] of Object.entries(G2)) {
     const [face, level] = GONDOLA_2_BOARDS[fixture];

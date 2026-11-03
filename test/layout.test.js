@@ -164,11 +164,11 @@ test('with every shelf, bin and cooler bought the shop still works: nothing is w
 
 test('bought pieces can be moved: shelves and bins stand clear of walls, coolers go flat against one, and nothing may shut the shop off', async () => {
   const { placementProblem, canPlace, snapPlacement, setLayout, INNER } = await import('../src/layout.js');
-  const all = ['bin-1', 'bin-2', 'bin-3', 'shelf-2', 'shelf-3', 'shelf-4', 'shelf-5', 'shelf-6', 'shelf-7', 'cooler-1', 'cooler-2'];
+  const all = ['bin-1', 'bin-2', 'bin-3', 'bin-4', 'bin-5', 'shelf-2', 'shelf-3', 'shelf-4', 'shelf-5', 'shelf-6', 'shelf-7', 'cooler-1', 'cooler-2'];
   // Where they start is fine.
   for (const id of ['bin-1', 'gondola-2', 'cooler-1', 'cooler-2']) assert.equal(canPlace(id, (await import('../src/layout.js')).PIECE_BY_ID[id].home, all), null, id);
   // Open floor is fine for a shelf or bin, in any turn.
-  for (const rot of [0, 1, 2, 3]) assert.equal(canPlace('bin-1', { x: 0.2, z: 1.6, rot }, all), null, `turn ${rot}`);
+  for (const rot of [0, 1, 2, 3]) assert.equal(canPlace('bin-1', { x: 2.2, z: 1.0, rot }, all), null, `turn ${rot}`);
   // But never against a wall, on any side.
   assert.equal(placementProblem('bin-1', { x: INNER.maxX - 0.65, z: -2, rot: 0 }, ['bin-1']), 'wall');
   assert.ok(['wall', 'blocked'].includes(placementProblem('gondola-2', { x: 0, z: INNER.maxZ - 0.5, rot: 0 }, all)), 'a shelf cannot stand against the front wall');
@@ -191,11 +191,11 @@ test('bought pieces can be moved: shelves and bins stand clear of walls, coolers
   assert.equal(placementProblem('bin-1', { x: 4.9, z: 3.0, rot: 0 }, all), null);
   assert.equal(canPlace('bin-1', { x: 4.9, z: 3.0, rot: 0 }, all), 'door', 'it would sit on the front of the checkout queue');
   // A moved piece takes its stock with it.
-  setLayout(all, { 'bin-1': { x: 0.2, z: 1.6, rot: 0 } });
+  setLayout(all, { 'bin-1': { x: 2.2, z: 1.0, rot: 0 } });
   try {
-    assert.ok(Math.abs(SLOTS.oranges.x - (0.2 + 0.31)) < 1e-9 && Math.abs(SLOTS.oranges.z - 1.6) < 1e-9, 'oranges follow their bin');
-    assert.ok(Math.abs(SLOTS.oranges.stand[1] - 3.2) < 1e-9, 'shoppers stand in front of it');
-    assert.equal(navBlocked(0.2, 1.6), true);
+    assert.ok(Math.abs(SLOTS.oranges.x - 2.2) < 1e-9 && Math.abs(SLOTS.oranges.z - 1.0) < 1e-9, 'oranges follow their bin');
+    assert.ok(Math.abs(SLOTS.oranges.stand[1] - 2.6) < 1e-9, 'shoppers stand in front of it');
+    assert.equal(navBlocked(2.2, 1.0), true);
     assert.equal(navBlocked(-5.0, -0.1), false, 'its old place is free floor again');
   } finally { setLayout([], {}); }
 });

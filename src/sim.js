@@ -32,10 +32,10 @@ export const PRODUCTS = [
 
   // ——— Tier 2 and 3: new lines that need the store's level and a fixture to put them on (see FIXTURES) ———
   { id: 'oranges', name: 'Navel oranges', short: 'Oranges', category: 'Produce', section: 'produce', cost: 0.52, price: 1.39, shelfLife: 10, caseSize: 12, demand: 0.95, color: '#e8861e', kind: 'produce', tier: 2, fixture: 'bin-1', description: 'Sweet, easy to peel and they hold up well.' },
-  { id: 'carrots', name: 'Carrots · bunch', short: 'Carrots', category: 'Produce', section: 'produce', cost: 0.46, price: 1.29, shelfLife: 14, caseSize: 12, demand: 0.8, color: '#e3761a', kind: 'produce', tier: 2, fixture: 'bin-1', description: 'Crunchy and cheap, with the tops still on.' },
-  { id: 'onions', name: 'Yellow onions', short: 'Onions', category: 'Produce', section: 'produce', cost: 0.3, price: 0.99, shelfLife: 21, caseSize: 12, demand: 0.82, color: '#c98a2e', kind: 'produce', tier: 3, fixture: 'bin-2', description: 'Every recipe starts with one.' },
-  { id: 'peppers', name: 'Bell peppers', short: 'Peppers', category: 'Produce', section: 'produce', cost: 0.7, price: 1.89, shelfLife: 7, caseSize: 10, demand: 0.6, color: '#c8321e', kind: 'produce', tier: 3, fixture: 'bin-2', description: 'Red, yellow and green. Glossy and a little pricey.' },
-  { id: 'grapes', name: 'Green grapes', short: 'Grapes', category: 'Produce', section: 'produce', cost: 1.35, price: 3.29, shelfLife: 6, caseSize: 8, demand: 0.55, color: '#9cc24a', kind: 'produce', tier: 3, fixture: 'bin-3', description: 'A treat that sells itself and spoils fast.' },
+  { id: 'carrots', name: 'Carrots · bunch', short: 'Carrots', category: 'Produce', section: 'produce', cost: 0.46, price: 1.29, shelfLife: 14, caseSize: 12, demand: 0.8, color: '#e3761a', kind: 'produce', tier: 2, fixture: 'bin-2', description: 'Crunchy and cheap, with the tops still on.' },
+  { id: 'onions', name: 'Yellow onions', short: 'Onions', category: 'Produce', section: 'produce', cost: 0.3, price: 0.99, shelfLife: 21, caseSize: 12, demand: 0.82, color: '#c98a2e', kind: 'produce', tier: 3, fixture: 'bin-3', description: 'Every recipe starts with one.' },
+  { id: 'peppers', name: 'Bell peppers', short: 'Peppers', category: 'Produce', section: 'produce', cost: 0.7, price: 1.89, shelfLife: 7, caseSize: 10, demand: 0.6, color: '#c8321e', kind: 'produce', tier: 3, fixture: 'bin-4', description: 'Red, yellow and green. Glossy and a little pricey.' },
+  { id: 'grapes', name: 'Green grapes', short: 'Grapes', category: 'Produce', section: 'produce', cost: 1.35, price: 3.29, shelfLife: 6, caseSize: 8, demand: 0.55, color: '#9cc24a', kind: 'produce', tier: 3, fixture: 'bin-5', description: 'A treat that sells itself and spoils fast.' },
   { id: 'flour', name: 'All-purpose flour · 5 lb', short: 'Flour', category: 'Dry goods', section: 'dry', cost: 1.9, price: 3.99, shelfLife: 270, caseSize: 6, demand: 0.6, color: '#e6e0d0', kind: 'bag', tier: 2, fixture: 'shelf-1', description: 'A baking staple that keeps for months.' },
   { id: 'sugar', name: 'Granulated sugar · 4 lb', short: 'Sugar', category: 'Dry goods', section: 'dry', cost: 1.75, price: 3.69, shelfLife: 540, caseSize: 6, demand: 0.7, color: '#f1eee4', kind: 'bag', tier: 2, fixture: 'shelf-2', description: 'Practically immortal. Steady sales.' },
   { id: 'oats', name: 'Rolled oats', short: 'Oats', category: 'Dry goods', section: 'dry', cost: 1.45, price: 3.29, shelfLife: 300, caseSize: 6, demand: 0.55, color: '#2d5da6', kind: 'box', tier: 3, fixture: 'shelf-3', description: 'Breakfast in a round blue canister.' },
@@ -65,9 +65,11 @@ export const TIERS = [
  * each stands). A line on one is sold once the store's level opens its tier and the fixture is bought.
  */
 export const FIXTURES = [
-  { id: 'bin-1', type: 'bin', label: 'Produce bin', detail: 'A slatted bin on the produce island', cost: 140 },
-  { id: 'bin-2', type: 'bin', label: 'Produce bin', detail: 'A second bin on the produce island', cost: 140 },
-  { id: 'bin-3', type: 'bin', label: 'Produce bin', detail: 'A third bin on the produce island', cost: 140 },
+  { id: 'bin-1', type: 'bin', label: 'Produce bin', detail: 'A slatted bin on the produce island', cost: 120 },
+  { id: 'bin-2', type: 'bin', label: 'Produce bin', detail: 'A second bin on the produce island', cost: 120 },
+  { id: 'bin-3', type: 'bin', label: 'Produce bin', detail: 'A third bin on the produce island', cost: 120 },
+  { id: 'bin-4', type: 'bin', label: 'Produce bin', detail: 'A bin in the second produce column', cost: 120 },
+  { id: 'bin-5', type: 'bin', label: 'Produce bin', detail: 'A second bin in that column', cost: 120 },
   { id: 'shelf-1', type: 'shelf', label: 'Pantry shelf', detail: 'A top board on the pantry gondola', cost: 85 },
   { id: 'shelf-2', type: 'shelf', label: 'Pantry shelf', detail: 'A new snack gondola, bottom front board', cost: 190 },
   { id: 'shelf-3', type: 'shelf', label: 'Pantry shelf', detail: 'Snack gondola, middle front board', cost: 85 },

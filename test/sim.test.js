@@ -676,12 +676,13 @@ test('the range is in three tiers by store level, and the new lines also need th
   assert.ok(bought.ok);
   assert.equal(state.cash, 1000 - bin.cost);
   assert.equal(buyFixture(state, 'bin-1').reason, 'already-owned');
-  assert.ok(isAvailable(state, PRODUCT_BY_ID.oranges) && isAvailable(state, PRODUCT_BY_ID.carrots));
+  assert.ok(isAvailable(state, PRODUCT_BY_ID.oranges));
+  assert.ok(!isAvailable(state, PRODUCT_BY_ID.carrots), 'each line has a bin of its own');
   assert.ok(!isAvailable(state, PRODUCT_BY_ID.onions), 'tier 3 stays shut at level 3');
-  assert.equal(fixtureBlock(state, 'bin-2'), 'level');
+  assert.equal(fixtureBlock(state, 'bin-3'), 'level');
   assert.ok(placeOrder(state, 'oranges', 1).ok);
   state.experience = 1000;
-  assert.ok(buyFixture(state, 'bin-2').ok);
+  assert.ok(buyFixture(state, 'bin-3').ok);
   assert.ok(isAvailable(state, PRODUCT_BY_ID.onions));
 });
 
