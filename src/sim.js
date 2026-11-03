@@ -877,11 +877,13 @@ export function maybeLeaveReview(state, customer) {
 
 /** The same neighborhood reputation that earns reviews also determines footfall. */
 export function customerArrivalInterval(state) {
-  return (32 + state.random() * 18) / trafficMultiplier(state);
+  return (18 + state.random() * 14) / trafficMultiplier(state);
 }
 
+/** Foot traffic: reputation sets it, and a bigger range (a higher store level) draws more of the block, up to half again. */
 function trafficMultiplier(state) {
-  return 0.66 + Math.max(0, Math.min(100, state.reputation)) / 100 * 0.92;
+  const levelDraw = Math.min(1.5, 1 + 0.07 * (getStoreLevel(state) - 1));
+  return (0.66 + Math.max(0, Math.min(100, state.reputation)) / 100 * 0.92) * levelDraw;
 }
 
 export function trafficLabel(state) {
