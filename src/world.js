@@ -8,10 +8,11 @@ import { floorTexture, wallTexture } from 'madness-engine/textures/venue';
 import { paintRoom } from 'madness-engine/textures/rooms/town';
 import { paintSky } from 'madness-engine/textures/skies/haze';
 import { screenMovementToWorld, startsCameraDrag, holdsCameraDrag, endsCameraDrag } from './controls.js';
-import { PRODUCTS, CAT_ROSTER, STAFF, PRODUCT_BY_ID, RESIDENTS, RESIDENT_BY_ID, shelfQuantity, stockroomQuantity, activeFrameDelta } from './sim.js';
+import { PRODUCTS, CAT_ROSTER, STAFF, PRODUCT_BY_ID, RESIDENTS, RESIDENT_BY_ID, isAvailable, shelfQuantity, stockroomQuantity, activeFrameDelta } from './sim.js';
 import {
   SHELL, FRONT_DOOR, REAR_DOOR, BACKROOM, SIDEWALK, LEVELS, GONDOLA, COOLER_LEVELS, COOLERS, PRODUCE_X, PRODUCE_Z, BAKERY, COUNTER,
   BACKBAR, BACKROOM_FIXTURES, SLOTS, DOOR_IN, SIDEWALK_SPAWN, SIDEWALK_EXITS, CHECKOUT, LOU_HOME, MARISOL_HOME, MANAGER_HOME, PLAYER_HOME,
+  GONDOLA_2, GONDOLA_2_BOARDS, REACH_COOLER, BIN_SIZE, PIECES, PIECE_BY_ID, LOCAL_PRODUCTS, placementOf, setLayout, footprint, snapPlacement, placementProblem,
   CAT_PATROLS, navBlocked, nearestWalkable, findWalkPath, planWalkRoute, routeLength, pointOnRoute,
 } from './layout.js';
 import { wallOpacity, easeOpacity, WALL_MODES } from './walls.js';
@@ -410,6 +411,50 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
       box(group, -0.04, 0.4, 0, 1.12, 0.04, 1.14, mats.woodDark);
     });
   }
+  // The fixtures the owner can buy: produce bins, snack shelves and a reach-in cooler. Each is built in its own frame,
+  // facing +z, so it can be stood anywhere and turned; it stays unseen until it is bought.
+  const pieceViews = new Map();
+  const fixtureViews = new Map();
+  const forFixture = (id, object) => { object.visible = false; if (!fixtureViews.has(id)) fixtureViews.set(id, []); fixtureViews.get(id).push(object); return object; };
+  function purchasableFixtures() {
+    for (const piece of PIECES) {
+      const group = new GFX.Group(); scene.add(group); pieceViews.set(piece.id, group);
+      if (piece.type === 'bin') {
+        const lines = LOCAL_PRODUCTS(piece.id).length;
+        forFixture(piece.id, group);
+        box(group, 0, 0.18, 0, BIN_SIZE, 0.36, BIN_SIZE, mats.wood);
+        box(group, 0, 0.42, 0.62, 1.34, 0.3, 0.08, mats.woodLight);                    // the low lip on the aisle side
+        box(group, 0, 0.55, -0.61, 1.34, 0.9, 0.1, mats.woodLight);                    // the tall back
+        box(group, 0, 0.4, -0.04, 1.14, 0.04, 1.12, mats.woodDark);
+        if (lines > 1) box(group, 0, 0.5, 0, 0.04, 0.2, 1.14, mats.woodDark);          // a divider between the two lines in the bin
+      } else if (piece.type === 'gondola') {
+        // The frame stands once any of its boards is bought, and each board when it is.
+        const { length, depth, height } = GONDOLA_2;
+        group.visible = false;
+        box(group, 0, 0.16, 0, length + 0.06, 0.22, depth + 0.1, mats.dark);
+        for (const sx of [-1, 1]) box(group, sx * (length / 2 - 0.05), height / 2, 0, 0.1, height, depth, mats.metal);
+        box(group, 0, height / 2, 0, length - 0.2, height - 0.1, 0.08, mats.steelDark);
+        box(group, 0, height + 0.04, 0, length + 0.1, 0.1, depth + 0.1, mats.dark);
+        for (const s of [-1, 1]) signPlane(group, s > 0 ? 'SNACKS · BAKING · SPREADS' : 'CHIPS · COOKIES · CANDY', 0, height + 0.38, s * 0.56, 3.0, 0.46, { background: '#33464c', foreground: '#f4e9d1', accent: '#d16f53', fontSize: 34, width: 768, height: 96 }, { rotationY: s > 0 ? 0 : Math.PI, singleSided: true });
+        for (const id of piece.fixtures) forFixture(id, group);
+        for (const [id, [face, level]] of Object.entries(GONDOLA_2_BOARDS)) {
+          const board = forFixture(id, new GFX.Group()); group.add(board);
+          box(board, 0, LEVELS[level] - 0.03, face * 0.28, length - 0.12, 0.05, 0.52, mats.woodLight);
+        }
+      } else {
+        const { depth: cd, height: ch, width: cw } = REACH_COOLER;
+        forFixture(piece.id, group);
+        box(group, 0, 0.15, -0.02, cw, 0.3, cd - 0.05, mats.steelDark);                                // plinth
+        box(group, 0, ch / 2 + 0.15, -0.45, cw, ch, 0.08, std('#cfd8d8', { roughness: 0.5 }));         // back panel
+        box(group, 0, ch + 0.2, 0, cw + 0.06, 0.16, cd + 0.06, mats.steelDark);                        // canopy
+        box(group, 0, ch + 0.05, 0.45, cw, 0.05, 0.05, mats.led, { castShadow: false });
+        for (const sx of [-1, 1]) box(group, sx * (cw / 2 - 0.03), ch / 2 + 0.15, 0.45, 0.06, ch, 0.1, mats.metal);
+        for (const level of COOLER_LEVELS) box(group, 0, level - 0.03, 0, cw - 0.08, 0.05, 0.84, mats.metal);
+        box(group, 0, (0.3 + ch + 0.1) / 2, 0.47, cw - 0.1, ch - 0.2, 0.04, mats.glass, { castShadow: false });
+        signPlane(group, 'COLD', 0, ch + 0.2, 0.52, 1.0, 0.3, { background: '#38545a', foreground: '#eef3e5', accent: '#b3d9d2', fontSize: 38, width: 768, height: 80 });
+      }
+    }
+  }
   function bakery() {
     const { x, z, w, d, top } = BAKERY;
     box(scene, x, top / 2, z, w, top - 0.1, d, mats.wood);
@@ -455,7 +500,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
     box(scene, f.pallet.x, 0.07, f.pallet.z, f.pallet.w, 0.14, f.pallet.d, mats.woodDark);
     signPlane(scene, 'RECEIVING', f.desk.x, 1.9, f.desk.z - 0.38, 1.4, 0.3, { background: '#3d5148', foreground: '#f4e9d1', accent: '#d6b578', fontSize: 42, width: 512, height: 80 });
   }
-  gondola(); coolers(); produceBins(); bakery(); checkout(); backroom();
+  gondola(); coolers(); produceBins(); purchasableFixtures(); bakery(); checkout(); backroom();
 
   // The models were being sculpted in workers all this while: wait for the first wave before standing any of them up,
   // so nothing is baked on the page's own thread. (No workers, or a slow bake: it falls back to baking here.)
@@ -781,8 +826,30 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
     }
   }
 
-  function syncDisplays(state) {
+  let fixtureKey = '';
+  function syncFixtures(state) {
+    const owned = state.fixtures ?? [], layout = state.layout ?? {};
+    const key = owned.join(',') + JSON.stringify(layout);
+    if (key === fixtureKey) return;
+    fixtureKey = key;
+    setLayout(owned, layout);
+    for (const views of fixtureViews.values()) for (const view of views) view.visible = false;
+    for (const piece of PIECES) {
+      const group = pieceViews.get(piece.id), p = placementOf(piece.id);
+      group.position.set(p.x, 0, p.z); group.rotation.y = p.rot * Math.PI / 2;
+    }
+    for (const id of owned) for (const view of fixtureViews.get(id) ?? []) view.visible = true;
+    // The stock on a moved piece moves with it.
     for (const [id, display] of displayGroups) {
+      const slot = SLOTS[id];
+      display.group.position.set(slot.x, slot.y, slot.z); display.group.rotation.y = slot.yaw;
+    }
+  }
+
+  function syncDisplays(state) {
+    syncFixtures(state);
+    for (const [id, display] of displayGroups) {
+      display.group.visible = isAvailable(state, display.product);
       const qty = shelfQuantity(state, id);
       if (display.lastQty === qty) continue;
       display.lastQty = qty;
@@ -881,6 +948,74 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
     if (stage.lantern) stage.lantern.intensity = 1.1 + Math.sin(realTime * 0.8) * 0.04;
   }
 
+  // ——— rearranging: the piece being moved follows the pointer, green where it may go and red where it may not ———
+  const ghostMaterial = new GFX.MeshBasicMaterial({ color: '#6fd08c', transparent: true, opacity: 0.5, depthWrite: false });
+  const ghost = new GFX.Group(); ghost.visible = false; scene.add(ghost);
+  const ghostBody = new GFX.Mesh(new GFX.BoxGeometry(1, 0.14, 1), ghostMaterial); ghost.add(ghostBody);
+  const ghostFront = new GFX.Mesh(new GFX.BoxGeometry(0.5, 0.14, 0.2), ghostMaterial); ghost.add(ghostFront);
+  const raycaster = new GFX.Raycaster();
+  const placing = { pieceId: null, rot: 0, at: null, state: null, problem: null, pointer: null };
+  function floorAt(event) {
+    const r = host.getBoundingClientRect();
+    raycaster.setFromCamera({ x: ((event.clientX - r.left) / r.width) * 2 - 1, y: -((event.clientY - r.top) / r.height) * 2 + 1 }, stage.camera);
+    const { origin: o, direction: d } = raycaster.ray;
+    if (Math.abs(d.y) < 1e-6) return null;
+    const s = -o.y / d.y;
+    return s > 0 ? { x: o.x + d.x * s, z: o.z + d.z * s } : null;
+  }
+  function refreshGhost() {
+    if (!placing.pieceId || !placing.at) { ghost.visible = false; return; }
+    const piece = PIECE_BY_ID[placing.pieceId];
+    const p = snapPlacement(placing.pieceId, placing.at.x, placing.at.z, placing.rot);
+    placing.rot = p.rot;
+    placing.problem = placementProblem(placing.pieceId, p, placing.state?.fixtures ?? [], placing.state?.layout ?? {});
+    placing.target = p;
+    ghostBody.scale.set(piece.w, 1, piece.d); ghostBody.position.set(0, 0.07, 0);
+    ghostFront.position.set(0, 0.07, piece.d / 2 + 0.1);
+    ghost.position.set(p.x, 0.02, p.z); ghost.rotation.y = p.rot * Math.PI / 2;
+    ghostMaterial.color.set(placing.problem ? '#e0523f' : '#6fd08c');
+    ghost.visible = true;
+  }
+  const placementApi = {
+    /** Pick a piece up: it follows the pointer until it is put down or cancelled. */
+    start(pieceId, state) {
+      const p = placementOf(pieceId, state.layout);
+      Object.assign(placing, { pieceId, state, rot: p.rot, at: { x: p.x, z: p.z }, target: p, problem: null });
+      refreshGhost();
+    },
+    rotate() { if (placing.pieceId) { placing.rot = (placing.rot + 1) % 4; refreshGhost(); } },
+    cancel() { placing.pieceId = null; placing.at = null; ghost.visible = false; },
+    get active() { return placing.pieceId; },
+    get problem() { return placing.problem; },
+    onPlace: null,
+  };
+  function dropAt(event) {
+    if (!placing.pieceId) return;
+    const at = floorAt(event);
+    if (!at) return;
+    placing.at = at; refreshGhost();
+    if (placementApi.onPlace?.(placing.pieceId, placing.target) === true) placementApi.cancel();
+  }
+  let tap = null;
+  host.addEventListener('pointermove', (event) => {
+    if (!placing.pieceId) return;
+    if (event.pointerType === 'touch' && tap) return;
+    const at = floorAt(event);
+    if (at) { placing.at = at; refreshGhost(); }
+  });
+  host.addEventListener('pointerdown', (event) => { if (placing.pieceId && event.button === 0) tap = { x: event.clientX, y: event.clientY }; });
+  host.addEventListener('pointerup', (event) => {
+    if (!placing.pieceId || !tap) return;
+    const moved = Math.hypot(event.clientX - tap.x, event.clientY - tap.y);
+    tap = null;
+    if (moved < 6 && event.button === 0) dropAt(event);
+  });
+  window.addEventListener('keydown', (event) => {
+    if (!placing.pieceId) return;
+    if (event.key === 'r' || event.key === 'R') { placementApi.rotate(); event.preventDefault(); }
+    else if (event.key === 'Escape') { placementApi.cancel(); placementApi.onCancel?.(); }
+  });
+
   // ——— camera: middle-button drag to orbit (a finger on touch screens), wheel to zoom ———
   let dragging = null;
   host.addEventListener('pointerdown', (event) => {
@@ -925,7 +1060,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   library.preload(background);
 
   const world = {
-    stage, scene, cats, staffModels, player, displayGroups, update, wallGroups,
+    stage, scene, cats, staffModels, player, displayGroups, update, wallGroups, placement: placementApi,
     get wallMode() { return wallMode; },
     setWallMode(mode) { if (WALL_MODES.includes(mode)) wallMode = mode; return wallMode; },
     cycleWallMode() { wallMode = WALL_MODES[(WALL_MODES.indexOf(wallMode) + 1) % WALL_MODES.length]; return wallMode; },

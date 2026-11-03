@@ -61,6 +61,10 @@ export const PRODUCT_PROP = {
   bread: 'bread', chicken: 'chicken', beef: 'beef', deli: 'turkey',
   rice: 'rice', pasta: 'spaghetti', cereal: 'cereal', beans: 'beans', coffee: 'coffee',
   soda: 'cola', water: 'water', pizza: 'pizza', icecream: 'icecream',
+  oranges: 'oranges', carrots: 'carrots', onions: 'onions', peppers: 'peppers', grapes: 'grapes',
+  flour: 'flour', sugar: 'sugar', oats: 'oats', peanutbutter: 'peanutbutter',
+  chips: 'chips', cookies: 'cookies', candybar: 'candybar',
+  orangejuice: 'orangejuice', bacon: 'bacon', sourcream: 'sourcream',
 };
 
 export const CAST = {

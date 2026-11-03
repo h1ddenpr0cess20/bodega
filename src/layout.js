@@ -28,6 +28,25 @@ export const COOLERS = {
     { id: 'frozen', label: 'FROZEN', x0: 5.9, x1: 8.6 },
   ],
 };
+// Floor space that can be bought for the new lines (sim.js FIXTURES has what each costs and opens), and
+// moved about the shop. A piece is drawn facing +z (`rot` turns it a quarter at a time: 1 faces +x).
+// The inside of the walls; a cooler's back stands against them.
+export const INNER = { minX: -8.85, maxX: 8.85, minZ: -6.85, maxZ: 6.85 };
+export const GONDOLA_2 = { length: 3.4, depth: 1.0, height: 2.25 };
+/** Which board of the second gondola each shelf fixture is: the face (1 faces the street) and the level. */
+export const GONDOLA_2_BOARDS = { 'shelf-2': [1, 0], 'shelf-3': [1, 1], 'shelf-4': [1, 2], 'shelf-5': [-1, 0], 'shelf-6': [-1, 1], 'shelf-7': [-1, 2] };
+export const REACH_COOLER = { depth: 1.0, width: 1.7, height: 1.95 };
+export const BIN_SIZE = 1.3;
+/** How far from a shelf or bin a shopper stands, and the clear floor each face and side needs. */
+export const FACE_REACH = 0.95;
+export const WALL_GAP = 0.3;
+export const PIECES = [
+  ...['bin-1', 'bin-2', 'bin-3'].map((id, i) => ({ id, type: 'bin', fixtures: [id], w: BIN_SIZE, d: BIN_SIZE, home: { x: -5.0, z: [-0.1, 1.35, 2.8][i], rot: 1 } })),
+  { id: 'gondola-2', type: 'gondola', fixtures: Object.keys(GONDOLA_2_BOARDS), w: GONDOLA_2.length, d: GONDOLA_2.depth, home: { x: 3.2, z: -2.4, rot: 0 } },
+  ...['cooler-1', 'cooler-2'].map((id, i) => ({ id, type: 'cooler', fixtures: [id], w: REACH_COOLER.width, d: REACH_COOLER.depth, home: { x: INNER.maxX - REACH_COOLER.depth / 2, z: [-3.5, -1.7][i], rot: 3 } })),
+];
+export const PIECE_BY_ID = Object.fromEntries(PIECES.map((p) => [p.id, p]));
+export const PIECE_OF_FIXTURE = Object.fromEntries(PIECES.flatMap((p) => p.fixtures.map((f) => [f, p.id])));
 export const PRODUCE_X = -8.0;
 export const PRODUCE_Z = [-0.55, 0.95, 2.45, 3.95, 5.45];
 export const BAKERY = { x: -4.6, z: 5.4, w: 2.0, d: 0.9, top: 0.88 };
@@ -46,14 +65,15 @@ export const BACKROOM_FIXTURES = {
  */
 function slotsFor() {
   const out = {};
-  const g = GONDOLA, gw = g.length - 0.3;
-  const shelf = (id, face, level) => {
+  const g = GONDOLA;
+  const shelfOn = (G, id, face, level) => {
     const s = face > 0 ? 1 : -1;
-    out[id] = { kind: 'gondola', x: g.x, y: LEVELS[level], z: g.z + s * 0.27, width: gw, depth: 0.5, yaw: face > 0 ? 0 : Math.PI, stand: [g.x, g.z + s * 1.35] };
+    out[id] = { kind: 'gondola', x: G.x, y: LEVELS[level], z: G.z + s * 0.27, width: G.length - 0.3, depth: 0.5, yaw: face > 0 ? 0 : Math.PI, stand: [G.x, G.z + s * 1.35] };
   };
+  const shelf = (id, face, level) => shelfOn(g, id, face, level);
   shelf('rice', 1, 0); shelf('pasta', 1, 1); shelf('cereal', 1, 2);
   shelf('beans', -1, 0); shelf('coffee', -1, 1);
-
+  shelf('flour', -1, 2);
   const cooler = (section, rows) => {
     const sec = COOLERS.sections.find((c) => c.id === section);
     const cx = (sec.x0 + sec.x1) / 2, width = sec.x1 - sec.x0 - 0.3;
@@ -76,6 +96,60 @@ function slotsFor() {
 }
 export const SLOTS = slotsFor();
 
+/** Each movable product's place in its piece's own frame, before the piece is put anywhere: [piece, local slot]. */
+const LOCAL_SLOTS = (() => {
+  const out = {};
+  const bin = (id, piece, lx, width) => { out[id] = [piece, { kind: 'bin', lx, y: 0.4, lz: 0, width, depth: 1.1, yaw: 0, stand: [lx, 1.6] }]; };
+  bin('oranges', 'bin-1', 0.31, 0.5); bin('carrots', 'bin-1', -0.31, 0.5);
+  bin('onions', 'bin-2', 0.31, 0.5); bin('peppers', 'bin-2', -0.31, 0.5);
+  bin('grapes', 'bin-3', 0, 1.1);
+  const G2 = { sugar: 'shelf-2', oats: 'shelf-3', peanutbutter: 'shelf-4', chips: 'shelf-5', cookies: 'shelf-6', candybar: 'shelf-7' };
+  for (const [id, fixture] of Object.entries(G2)) {
+    const [face, level] = GONDOLA_2_BOARDS[fixture];
+    out[id] = ['gondola-2', { kind: 'gondola', lx: 0, y: LEVELS[level], lz: face * 0.27, width: GONDOLA_2.length - 0.3, depth: 0.5, yaw: face > 0 ? 0 : Math.PI, stand: [0, face * 1.35] }];
+  }
+  const cool = (id, piece, level) => { out[id] = [piece, { kind: 'cooler', lx: 0, y: COOLER_LEVELS[level], lz: 0, width: REACH_COOLER.width - 0.2, depth: 0.74, yaw: 0, stand: [0, 1.3] }]; };
+  cool('orangejuice', 'cooler-1', 0); cool('bacon', 'cooler-1', 1); cool('sourcream', 'cooler-2', 0);
+  return out;
+})();
+
+/** The products that stand on a piece. */
+export const LOCAL_PRODUCTS = (pieceId) => Object.entries(LOCAL_SLOTS).filter(([, [piece]]) => piece === pieceId).map(([id]) => id);
+
+// ——— where the bought pieces stand ———
+let owned = new Set();
+let moved = {};
+/** A piece's placement: where the owner put it, or its home. */
+export const placementOf = (id, layout = moved) => layout[id] ?? PIECE_BY_ID[id].home;
+const standing = (piece, ids) => piece.fixtures.some((f) => ids.has(f));
+
+/** A point in a piece's own frame as a point on the floor. */
+function toWorld(p, lx, lz) {
+  const a = p.rot * Math.PI / 2, s = Math.sin(a), c = Math.cos(a);
+  return [p.x + lx * c + lz * s, p.z - lx * s + lz * c];
+}
+
+/** Put every movable product where its piece stands. */
+function refreshSlots() {
+  for (const [id, [pieceId, local]] of Object.entries(LOCAL_SLOTS)) {
+    const p = placementOf(pieceId);
+    const [x, z] = toWorld(p, local.lx, local.lz);
+    const [sx, sz] = toWorld(p, local.stand[0], local.stand[1]);
+    SLOTS[id] = { kind: local.kind, x, y: local.y, z, width: local.width, depth: local.depth, yaw: p.rot * Math.PI / 2 + local.yaw, stand: [sx, sz] };
+  }
+}
+refreshSlots();
+
+/** Tell the floor plan which pieces are bought and where the owner has put them (`layout`: piece id → { x, z, rot }). */
+export function setLayout(ownedIds, layout = {}) { owned = new Set(ownedIds); moved = { ...layout }; refreshSlots(); }
+
+/** The floor a piece covers, as a box on the floor: a quarter turn swaps its width and depth. */
+export function footprint(piece, p) {
+  const sideways = p.rot % 2 !== 0;
+  return { x: p.x, z: p.z, w: sideways ? piece.d : piece.w, d: sideways ? piece.w : piece.d };
+}
+
+
 // ——— where people go ———
 export const DOOR_IN = [FRONT_DOOR.x, 0, 6.5];
 export const SIDEWALK_SPAWN = [FRONT_DOOR.x + 0.2, 0, 9.5];
@@ -87,7 +161,7 @@ export const MANAGER_HOME = [-6.4, 0, -5.55];                // at the receiving
 export const PLAYER_HOME = [4.5, 0, 5.2];
 
 export const CAT_PATROLS = [
-  [[-6.5, -0.8], [-6.5, 5.9], [-3.2, 5.9], [-3.2, 1.2]],
+  [[-6.5, -1.1], [-6.5, 5.9], [-3.2, 5.9], [-3.2, -1.1]],
   [[-3.6, -4.6], [1.0, -4.6], [6.0, -4.6], [6.0, -1.2], [1.0, -1.2], [-3.6, -1.2]],
   [[0.4, 4.2], [4.6, 4.2], [4.6, 5.9], [0.4, 5.9]],
 ];
@@ -141,10 +215,12 @@ export const NAV_BLOCKERS = [
   ...STREET_ITEMS.map((p) => ({ x: p.x, z: p.z, w: p.r * 2, d: p.r * 2 })),
 ];
 
+const inside = (b, x, z, r) => x >= b.x - b.w / 2 - r && x <= b.x + b.w / 2 + r && z >= b.z - b.d / 2 - r && z <= b.z + b.d / 2 + r;
+
 export function navBlocked(x, z) {
   if (x < NAV.minX || x > NAV.maxX || z < NAV.minZ || z > NAV.maxZ) return true;
   const r = NAV.clearance;
-  return NAV_BLOCKERS.some((b) => x >= b.x - b.w / 2 - r && x <= b.x + b.w / 2 + r && z >= b.z - b.d / 2 - r && z <= b.z + b.d / 2 + r);
+  return NAV_BLOCKERS.some((b) => inside(b, x, z, r)) || PIECES.some((piece) => standing(piece, owned) && inside(footprint(piece, placementOf(piece.id)), x, z, r));
 }
 
 export function nearestWalkable(x, z) {
@@ -294,4 +370,99 @@ export function pointOnRoute(route, progress) {
     remaining -= length;
   }
   return [...route[route.length - 1]];
+}
+
+// ——— putting the bought pieces where the owner wants them ———
+
+const BACKROOM_BOX = { x: (BACKROOM.minX + BACKROOM.maxX) / 2, z: (BACKROOM.minZ + BACKROOM.maxZ) / 2, w: BACKROOM.maxX - BACKROOM.minX + SHELL.wall, d: BACKROOM.maxZ - BACKROOM.minZ + SHELL.wall };
+const DOOR_BOX = { x: FRONT_DOOR.x, z: INNER.maxZ - 0.8, w: FRONT_DOOR.width + 1.0, d: 1.6 };
+/** Floor that is already taken, whether or not anything walks there. */
+const TAKEN = [...NAV_BLOCKERS, BACKROOM_BOX, DOOR_BOX];
+const overlap = (a, b) => Math.abs(a.x - b.x) < (a.w + b.w) / 2 - 0.03 && Math.abs(a.z - b.z) < (a.d + b.d) / 2 - 0.03;
+const within = (box, margin = 0) => box.x - box.w / 2 >= INNER.minX + margin - 1e-6 && box.x + box.w / 2 <= INNER.maxX - margin + 1e-6
+  && box.z - box.d / 2 >= INNER.minZ + margin - 1e-6 && box.z + box.d / 2 <= INNER.maxZ - margin + 1e-6;
+const frontOf = (rot) => [Math.sin(rot * Math.PI / 2), Math.cos(rot * Math.PI / 2)];
+
+/** The clear floor a face needs: a strip as wide as the piece, `side` being 1 for its front and -1 for its back. */
+function faceStrip(piece, p, side) {
+  const [fx, fz] = frontOf(p.rot);
+  const box = footprint(piece, p);
+  const reach = FACE_REACH, alongX = p.rot % 2 === 0;
+  return { x: p.x + fx * side * (piece.d / 2 + reach / 2), z: p.z + fz * side * (piece.d / 2 + reach / 2), w: alongX ? box.w - 0.2 : reach, d: alongX ? reach : box.d - 0.2 };
+}
+
+/**
+ * The cooler wall nearest a point, with the placement of a cooler against it: back to the wall, glass
+ * facing in, slid along the wall to `x`/`z` (kept clear of the corners).
+ */
+function snapToWall(piece, x, z) {
+  const walls = [
+    { dist: z - INNER.minZ, rot: 0 }, { dist: x - INNER.minX, rot: 1 },
+    { dist: INNER.maxZ - z, rot: 2 }, { dist: INNER.maxX - x, rot: 3 },
+  ].sort((a, b) => a.dist - b.dist);
+  const rot = walls[0].rot, half = piece.d / 2, along = piece.w / 2;
+  const grid = (v) => Math.round(v * 10) / 10;
+  if (rot === 0) return { rot, x: Math.min(INNER.maxX - along, Math.max(INNER.minX + along, grid(x))), z: INNER.minZ + half };
+  if (rot === 2) return { rot, x: Math.min(INNER.maxX - along, Math.max(INNER.minX + along, grid(x))), z: INNER.maxZ - half };
+  if (rot === 1) return { rot, x: INNER.minX + half, z: Math.min(INNER.maxZ - along, Math.max(INNER.minZ + along, grid(z))) };
+  return { rot, x: INNER.maxX - half, z: Math.min(INNER.maxZ - along, Math.max(INNER.minZ + along, grid(z))) };
+}
+
+/** Where a piece lands for a pointer at (x, z): coolers slide to the nearest wall, the rest snap to the grid and keep their turn. */
+export function snapPlacement(pieceId, x, z, rot = 0) {
+  const piece = PIECE_BY_ID[pieceId];
+  if (piece.type === 'cooler') return snapToWall(piece, x, z);
+  const grid = (v) => Math.round(v * 10) / 10;
+  return { x: grid(x), z: grid(z), rot: ((rot % 4) + 4) % 4 };
+}
+
+/**
+ * Why a piece cannot stand here, or null: 'out' (outside the shop), 'blocked' (something is there),
+ * 'wall' (a shelf or bin must stand clear of walls on every side so both faces can be reached),
+ * 'needs-wall' (a cooler's back must be flat to a wall), 'door' (the door or a face would be shut off).
+ */
+export function placementProblem(pieceId, p, ownedIds, layout = {}) {
+  const piece = PIECE_BY_ID[pieceId];
+  const box = footprint(piece, p);
+  const isCooler = piece.type === 'cooler';
+  if (!within(box)) return 'out';
+  const others = PIECES.filter((o) => o.id !== pieceId && standing(o, new Set(ownedIds))).map((o) => footprint(o, placementOf(o.id, layout)));
+  if ([...TAKEN, ...others].some((b) => overlap(box, b))) return 'blocked';
+  if (isCooler) {
+    const [fx, fz] = frontOf(p.rot);
+    const back = { x: p.x - fx * piece.d / 2, z: p.z - fz * piece.d / 2 };
+    const flush = p.rot === 0 ? back.z - INNER.minZ : p.rot === 2 ? INNER.maxZ - back.z : p.rot === 1 ? back.x - INNER.minX : INNER.maxX - back.x;
+    if (Math.abs(flush) > 0.02) return 'needs-wall';
+  } else if (!within(box, WALL_GAP)) return 'wall';
+  const strips = [faceStrip(piece, p, 1), ...(piece.type === 'gondola' ? [faceStrip(piece, p, -1)] : [])];
+  for (const strip of strips) {
+    if (!within(strip)) return 'wall';
+    if ([...TAKEN, ...others].some((b) => overlap(strip, b))) return 'blocked';
+  }
+  return null;
+}
+
+/** Run `fn` as if these pieces were bought and standing here, then put the real layout back. */
+function withLayout(ownedIds, layout, fn) {
+  const before = [owned, moved];
+  setLayout(ownedIds, layout);
+  try { return fn(); } finally { setLayout(before[0], before[1]); }
+}
+
+/** Whether the whole shop still works with the layout: the door, the till, the staff and every line stay reachable. */
+export function shopStillWorks(ownedIds, layout, extraStands = []) {
+  return withLayout(ownedIds, layout, () => {
+    const from = [SIDEWALK_SPAWN[0], 0, SIDEWALK_SPAWN[2]];
+    const keys = [CHECKOUT, MARISOL_HOME, MANAGER_HOME, DOOR_IN, ...extraStands];
+    // Lines on pieces that are not bought have nowhere to stand yet.
+    const live = Object.entries(SLOTS).filter(([id]) => !LOCAL_SLOTS[id] || standing(PIECE_BY_ID[LOCAL_SLOTS[id][0]], new Set(ownedIds))).map(([, s]) => [s.stand[0], 0, s.stand[1]]);
+    return [...keys, ...live].every((to) => !navBlocked(to[0], to[2]) && findWalkPath(from, to, { strict: true }));
+  });
+}
+
+/** The full test for putting a piece down: the geometry, and the shop still working. Returns null if it is fine, or the reason. */
+export function canPlace(pieceId, p, ownedIds, layout = {}) {
+  const problem = placementProblem(pieceId, p, ownedIds, layout);
+  if (problem) return problem;
+  return shopStillWorks(ownedIds, { ...layout, [pieceId]: p }) ? null : 'door';
 }
