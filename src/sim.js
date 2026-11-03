@@ -1,3 +1,5 @@
+import { PIECES, PIECE_BY_ID, isStanding, canPlace, placementProblem } from './layout.js';
+
 /**
  * Bodega's authoritative store simulation.
  * All dates are measured in fractional store-days. A batch's expiry is fixed
@@ -27,9 +29,60 @@ export const PRODUCTS = [
   { id: 'water', name: 'Spring water · 1 L', short: 'Water', category: 'Drinks', section: 'drinks', cost: 0.28, price: 0.99, shelfLife: 540, caseSize: 12, demand: 1.38, color: '#85b9cf', kind: 'bottle', description: 'Long dated, quick turnover.' },
   { id: 'pizza', name: 'Cheese pizza', short: 'Frozen pizza', category: 'Frozen', section: 'frozen', cost: 2.05, price: 4.99, shelfLife: 180, caseSize: 6, demand: 0.7, color: '#d8a75e', kind: 'frozen', description: 'Frozen stock is forgiving, not immortal.' },
   { id: 'icecream', name: 'Vanilla ice cream', short: 'Ice cream', category: 'Frozen', section: 'frozen', cost: 1.9, price: 4.79, shelfLife: 100, caseSize: 6, demand: 0.78, color: '#e7dfc9', kind: 'tub', description: 'Keep frozen. Watch freezer temperature.' },
+
+  // ——— Tier 2 and 3: new lines that need the store's level and a fixture to put them on (see FIXTURES) ———
+  { id: 'oranges', name: 'Navel oranges', short: 'Oranges', category: 'Produce', section: 'produce', cost: 0.52, price: 1.39, shelfLife: 10, caseSize: 12, demand: 0.95, color: '#e8861e', kind: 'produce', tier: 2, fixture: 'bin-1', description: 'Sweet, easy to peel and they hold up well.' },
+  { id: 'carrots', name: 'Carrots · bunch', short: 'Carrots', category: 'Produce', section: 'produce', cost: 0.46, price: 1.29, shelfLife: 14, caseSize: 12, demand: 0.8, color: '#e3761a', kind: 'produce', tier: 2, fixture: 'bin-2', description: 'Crunchy and cheap, with the tops still on.' },
+  { id: 'onions', name: 'Yellow onions', short: 'Onions', category: 'Produce', section: 'produce', cost: 0.3, price: 0.99, shelfLife: 21, caseSize: 12, demand: 0.82, color: '#c98a2e', kind: 'produce', tier: 3, fixture: 'bin-3', description: 'Every recipe starts with one.' },
+  { id: 'peppers', name: 'Bell peppers', short: 'Peppers', category: 'Produce', section: 'produce', cost: 0.7, price: 1.89, shelfLife: 7, caseSize: 10, demand: 0.6, color: '#c8321e', kind: 'produce', tier: 3, fixture: 'bin-4', description: 'Red, yellow and green. Glossy and a little pricey.' },
+  { id: 'grapes', name: 'Green grapes', short: 'Grapes', category: 'Produce', section: 'produce', cost: 1.35, price: 3.29, shelfLife: 6, caseSize: 8, demand: 0.55, color: '#9cc24a', kind: 'produce', tier: 3, fixture: 'bin-5', description: 'A treat that sells itself and spoils fast.' },
+  { id: 'flour', name: 'All-purpose flour · 5 lb', short: 'Flour', category: 'Dry goods', section: 'dry', cost: 1.9, price: 3.99, shelfLife: 270, caseSize: 6, demand: 0.6, color: '#e6e0d0', kind: 'bag', tier: 2, fixture: 'shelf-1', description: 'A baking staple that keeps for months.' },
+  { id: 'sugar', name: 'Granulated sugar · 4 lb', short: 'Sugar', category: 'Dry goods', section: 'dry', cost: 1.75, price: 3.69, shelfLife: 540, caseSize: 6, demand: 0.7, color: '#f1eee4', kind: 'bag', tier: 2, fixture: 'shelf-2', description: 'Practically immortal. Steady sales.' },
+  { id: 'oats', name: 'Rolled oats', short: 'Oats', category: 'Dry goods', section: 'dry', cost: 1.45, price: 3.29, shelfLife: 300, caseSize: 6, demand: 0.55, color: '#2d5da6', kind: 'box', tier: 3, fixture: 'shelf-3', description: 'Breakfast in a round blue canister.' },
+  { id: 'peanutbutter', name: 'Peanut butter · jar', short: 'Peanut butter', category: 'Dry goods', section: 'dry', cost: 1.6, price: 3.79, shelfLife: 360, caseSize: 8, demand: 0.75, color: '#b9803a', kind: 'jar', tier: 3, fixture: 'shelf-4', description: 'A lunchbox essential with a healthy margin.' },
+  { id: 'chips', name: 'Potato chips', short: 'Chips', category: 'Snacks', section: 'dry', cost: 1.05, price: 2.79, shelfLife: 75, caseSize: 10, demand: 1.2, color: '#f4cf2a', kind: 'bag', tier: 2, fixture: 'shelf-5', description: 'The impulse buy of the neighborhood.' },
+  { id: 'cookies', name: 'Chocolate chip cookies', short: 'Cookies', category: 'Snacks', section: 'dry', cost: 1.2, price: 2.99, shelfLife: 60, caseSize: 8, demand: 0.85, color: '#c8903f', kind: 'box', tier: 3, fixture: 'shelf-6', description: 'Sweet, packaged and popular after school.' },
+  { id: 'candybar', name: 'Chocolate bar', short: 'Candy bar', category: 'Snacks', section: 'dry', cost: 0.4, price: 1.29, shelfLife: 150, caseSize: 24, demand: 1.1, color: '#5a2e18', kind: 'bar', tier: 3, fixture: 'shelf-7', description: 'Cheap, small and always by the register in spirit.' },
+  { id: 'orangejuice', name: 'Orange juice · 52 oz', short: 'Orange juice', category: 'Drinks', section: 'chilled', cost: 2.2, price: 4.49, shelfLife: 12, caseSize: 6, demand: 0.7, color: '#f5a21e', kind: 'carton', tier: 2, fixture: 'cooler-1', description: 'Chilled and breakfast-bound.' },
+  { id: 'bacon', name: 'Sliced bacon', short: 'Bacon', category: 'Meat', section: 'chilled', cost: 3.1, price: 6.29, shelfLife: 14, caseSize: 6, demand: 0.6, color: '#a8231c', kind: 'tray', tier: 3, fixture: 'cooler-1', description: 'Weekend favorite. Keep it cold.' },
+  { id: 'sourcream', name: 'Sour cream', short: 'Sour cream', category: 'Dairy', section: 'chilled', cost: 0.95, price: 2.29, shelfLife: 16, caseSize: 8, demand: 0.45, color: '#f3f1e6', kind: 'tub', tier: 3, fixture: 'cooler-2', description: 'A slow mover, but the tacos need it.' },
 ];
 
+// Tier 1 is the everyday basics. A few established lines, which already have their own space, open at tier 2.
+const TIER_TWO_LINES = new Set(['tomatoes', 'yogurt', 'cheese', 'butter', 'deli', 'coffee', 'pizza', 'icecream']);
+for (const product of PRODUCTS) product.tier ??= TIER_TWO_LINES.has(product.id) ? 2 : 1;
 export const PRODUCT_BY_ID = Object.fromEntries(PRODUCTS.map((p) => [p.id, p]));
+
+/** The store level each tier of product opens at: tier 1 is the basics the shop opens with, 2 and 3 widen the range. Add more tiers here. */
+export const TIERS = [
+  { tier: 1, level: 1, name: 'Corner Basics' },
+  { tier: 2, level: 3, name: 'Growing Range' },
+  { tier: 3, level: 5, name: 'Full Range' },
+];
+
+/**
+ * Floor space that can be bought for the new lines, keyed to the layout's fixtures (layout.js has where
+ * each stands). A line on one is sold once the store's level opens its tier and the fixture is bought.
+ */
+export const FIXTURES = [
+  { id: 'bin-1', type: 'bin', label: 'Produce bin', detail: 'A slatted bin on the produce island', cost: 120 },
+  { id: 'bin-2', type: 'bin', label: 'Produce bin', detail: 'A second bin on the produce island', cost: 120 },
+  { id: 'bin-3', type: 'bin', label: 'Produce bin', detail: 'A third bin on the produce island', cost: 120 },
+  { id: 'bin-4', type: 'bin', label: 'Produce bin', detail: 'A bin in the second produce column', cost: 120 },
+  { id: 'bin-5', type: 'bin', label: 'Produce bin', detail: 'A second bin in that column', cost: 120 },
+  { id: 'shelf-1', type: 'shelf', label: 'Pantry shelf', detail: 'A top board on the pantry gondola', cost: 85 },
+  { id: 'shelf-2', type: 'shelf', label: 'Pantry shelf', detail: 'A new snack gondola, bottom front board', cost: 190 },
+  { id: 'shelf-3', type: 'shelf', label: 'Pantry shelf', detail: 'Snack gondola, middle front board', cost: 85 },
+  { id: 'shelf-4', type: 'shelf', label: 'Pantry shelf', detail: 'Snack gondola, top front board', cost: 85 },
+  { id: 'shelf-5', type: 'shelf', label: 'Pantry shelf', detail: 'Snack gondola, bottom back board', cost: 85 },
+  { id: 'shelf-6', type: 'shelf', label: 'Pantry shelf', detail: 'Snack gondola, middle back board', cost: 85 },
+  { id: 'shelf-7', type: 'shelf', label: 'Pantry shelf', detail: 'Snack gondola, top back board', cost: 85 },
+  { id: 'cooler-1', type: 'cooler', label: 'Reach-in cooler', detail: 'A two-shelf glass-door cooler on the right wall', cost: 320 },
+  { id: 'cooler-2', type: 'cooler', label: 'Reach-in cooler', detail: 'A second glass door', cost: 260 },
+];
+export const FIXTURE_BY_ID = Object.fromEntries(FIXTURES.map((f) => [f.id, f]));
+for (const fixture of FIXTURES) fixture.products = PRODUCTS.filter((p) => p.fixture === fixture.id).map((p) => p.id);
+for (const fixture of FIXTURES) fixture.tier = Math.min(...fixture.products.map((id) => PRODUCT_BY_ID[id].tier));
 export const STAFF = [
   { id: 'lou', name: 'Lou Rivera', role: 'Cashier · opens the store', character: 'gent', wage: 14, color: '#e0b982' },
   { id: 'marisol', name: 'Marisol Vega', role: 'Floor lead · stock rotation', character: 'vendor', wage: 12, color: '#64a9a3' },
@@ -178,6 +231,62 @@ export function getStoreLevelProgress(state) {
 }
 
 
+export const tierLevel = (tier) => TIERS.find((t) => t.tier === tier)?.level ?? Infinity;
+/** Whether the store's level has opened this product's tier. */
+export const tierOpen = (state, product) => getStoreLevel(state) >= tierLevel(product.tier);
+/** Whether a product is on sale: its tier is open and, for the new lines, its fixture is bought. */
+export function isAvailable(state, product) {
+  if (typeof product === 'string') product = PRODUCT_BY_ID[product];
+  if (!product) return false;
+  return tierOpen(state, product) && (!product.fixture || (state.fixtures ?? []).includes(product.fixture));
+}
+export const availableProducts = (state) => PRODUCTS.filter((p) => isAvailable(state, p));
+
+/** What stops this fixture being bought: 'owned', 'level' or 'funds', else null. */
+export function fixtureBlock(state, fixtureId) {
+  const fixture = FIXTURE_BY_ID[fixtureId];
+  if (!fixture) return 'unknown';
+  if ((state.fixtures ?? []).includes(fixtureId)) return 'owned';
+  if (getStoreLevel(state) < tierLevel(fixture.tier)) return 'level';
+  if (state.cash + 1e-8 < fixture.cost) return 'funds';
+  return null;
+}
+
+/** Everything on the floor that can be moved, each with where it stands: [{ piece, x, z, rot }]. */
+export function standingPieces(state) {
+  return PIECES.filter((piece) => isStanding(piece, new Set(state.fixtures)))
+    .map((piece) => ({ piece, ...(state.layout[piece.id] ?? piece.home) }));
+}
+
+/** Move a bought shelf, bin or cooler. Shelves and bins stand clear of walls; a cooler goes flat against one. */
+export function placeFixture(state, pieceId, placement) {
+  const piece = PIECE_BY_ID[pieceId];
+  if (!piece || !isStanding(piece, new Set(state.fixtures))) return { ok: false, reason: 'not-owned' };
+  const p = { x: Number(placement?.x), z: Number(placement?.z), rot: Number(placement?.rot) };
+  if (![p.x, p.z, p.rot].every(Number.isFinite) || !Number.isInteger(p.rot) || p.rot < 0 || p.rot > 3) return { ok: false, reason: 'invalid' };
+  const reason = canPlace(pieceId, p, state.fixtures, state.layout);
+  if (reason) return { ok: false, reason };
+  state.layout[pieceId] = p;
+  pushEvent(state, 'note', `${piece.name} was moved.`, 'Shoppers and Marisol use its new spot straight away.');
+  return { ok: true };
+}
+
+/** Buy a shelf, bin or cooler with register cash. It opens the lines that stand on it. */
+export function buyFixture(state, fixtureId) {
+  const block = fixtureBlock(state, fixtureId);
+  const fixture = FIXTURE_BY_ID[fixtureId];
+  if (block === 'unknown') return { ok: false, reason: 'unknown-fixture' };
+  if (block === 'owned') return { ok: false, reason: 'already-owned' };
+  if (block === 'level') return { ok: false, reason: 'level-too-low', level: tierLevel(fixture.tier) };
+  if (block === 'funds') return { ok: false, reason: 'insufficient-funds', shortfall: fixture.cost - state.cash };
+  state.cash = Math.round((state.cash - fixture.cost) * 100) / 100;
+  state.fixtures.push(fixtureId);
+  state.dayStats.fixtures = (state.dayStats.fixtures ?? 0) + fixture.cost;
+  const names = fixture.products.map((id) => PRODUCT_BY_ID[id].short.toLowerCase()).join(' and ');
+  pushEvent(state, 'order', `New ${fixture.label.toLowerCase()} installed.`, `${money(fixture.cost)} from the register · room for ${names}.`);
+  return { ok: true, cost: fixture.cost, products: fixture.products };
+}
+
 export const money = (amount) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
 export const productNow = (state) => state.day + state.minute / 1440;
 export const productOf = (id) => PRODUCT_BY_ID[id];
@@ -211,7 +320,21 @@ export function loadGameState(serialized) {
     Object.assign(state, saved);
     state.random = createRng(saved.rngState ?? 1);
     state.paused = false; // Resume active days on reload; no offline time is simulated.
-    state.orderCases ??= Object.fromEntries(PRODUCTS.map((p) => [p.id, 1]));
+    state.fixtures = Array.isArray(saved.fixtures) ? saved.fixtures.filter((id) => FIXTURE_BY_ID[id]) : [];
+    // Saves from before a line existed have no stock record for it.
+    for (const product of PRODUCTS) {
+      state.shelves[product.id] ??= [];
+      state.stockroom[product.id] ??= [];
+      state.prices[product.id] ??= product.price;
+    }
+    // Keep only placements that still make sense: an owned piece, standing somewhere it may.
+    state.layout = {};
+    for (const [id, p] of Object.entries(saved.layout ?? {})) {
+      const piece = PIECE_BY_ID[id];
+      const sound = piece && [p?.x, p?.z, p?.rot].every(Number.isFinite) && Number.isInteger(p.rot) && p.rot >= 0 && p.rot < 4;
+      if (sound && isStanding(piece, new Set(state.fixtures)) && !placementProblem(id, p, state.fixtures, state.layout)) state.layout[id] = { x: p.x, z: p.z, rot: p.rot };
+    }
+    state.orderCases = { ...Object.fromEntries(PRODUCTS.map((p) => [p.id, 1])), ...state.orderCases };
     state.reviews ??= OPENING_REVIEWS.map((review) => ({ ...review })).reverse();
     state.dayStats ??= {};
     state.dayStats.catLoved ??= 0;
@@ -300,11 +423,13 @@ export function createGameState(seed = 20261031) {
     staffReserveSeeded: true,
     staffWork: { stage: 'idle', productId: null, timer: 0, duration: 0, moved: 0 },
     lastDaySummary: null,
+    fixtures: [],
+    layout: {},
   };
 
   // Most opening stock is already on the shop floor; perishable lines include
   // a small older delivery so rotation is a real first-day responsibility.
-  for (const product of PRODUCTS) {
+  for (const product of PRODUCTS.filter((p) => !p.fixture)) {
     const startingQty = product.section === 'chilled' ? 5 : product.section === 'produce' ? 7 : 6;
     const olderQty = ['bananas', 'lettuce', 'milk', 'bread', 'chicken', 'beef', 'tomatoes'].includes(product.id) ? 2 : 0;
     if (olderQty) state.shelves[product.id].push(newBatch(state, product, olderQty, { age: Math.min(1.2, product.shelfLife * 0.3) }));
@@ -335,7 +460,7 @@ export function oldestShelfBatch(state, productId) {
   return state.shelves[productId][0] ?? null;
 }
 export function inventoryHealth(state) {
-  return PRODUCTS.reduce((out, product) => {
+  return availableProducts(state).reduce((out, product) => {
     const shelf = state.shelves[product.id];
     out.expired += qtyOf(shelf.filter((b) => isExpired(b, productNow(state))));
     out.low += shelfQuantity(state, product.id) <= 2 ? 1 : 0;
@@ -380,7 +505,7 @@ export function restockProduct(state, productId, requested = Infinity) {
 }
 
 export function restockAll(state) {
-  const results = PRODUCTS.map((product) => ({ productId: product.id, ...restockProduct(state, product.id) })).filter((r) => r.moved > 0);
+  const results = availableProducts(state).map((product) => ({ productId: product.id, ...restockProduct(state, product.id) })).filter((r) => r.moved > 0);
   return results.reduce((total, r) => total + r.moved, 0);
 }
 
@@ -389,6 +514,7 @@ export function placeOrder(state, productId, cases = 1) {
   const product = PRODUCT_BY_ID[productId];
   const count = Math.floor(Number(cases));
   if (!product || !Number.isFinite(count) || count < 1 || count > 20) return { ok: false, reason: 'invalid-quantity' };
+  if (!isAvailable(state, product)) return { ok: false, reason: 'not-stocked' };
   const qty = product.caseSize * count;
   const total = Math.round(product.cost * qty * 100) / 100;
   if (state.cash + 1e-8 < total) return { ok: false, reason: 'insufficient-funds', total, shortfall: total - state.cash };
@@ -487,7 +613,7 @@ const NO_FAVORITES = new Set();
  * one. A resident's favorites weigh three times their usual demand.
  */
 function weightedProduct(state, excluded = new Set(), favorites = NO_FAVORITES) {
-  const pool = PRODUCTS.filter((p) => !excluded.has(p.id));
+  const pool = availableProducts(state).filter((p) => !excluded.has(p.id));
   const weight = (p) => p.demand * (favorites.has(p.id) ? 3 : 1);
   const sum = pool.reduce((n, p) => n + weight(p), 0);
   let roll = state.random() * sum;
@@ -753,11 +879,13 @@ export function maybeLeaveReview(state, customer) {
 
 /** The same neighborhood reputation that earns reviews also determines footfall. */
 export function customerArrivalInterval(state) {
-  return (32 + state.random() * 18) / trafficMultiplier(state);
+  return (18 + state.random() * 14) / trafficMultiplier(state);
 }
 
+/** Foot traffic: reputation sets it, and a bigger range (a higher store level) draws more of the block, up to half again. */
 function trafficMultiplier(state) {
-  return 0.66 + Math.max(0, Math.min(100, state.reputation)) / 100 * 0.92;
+  const levelDraw = Math.min(1.5, 1 + 0.07 * (getStoreLevel(state) - 1));
+  return (0.66 + Math.max(0, Math.min(100, state.reputation)) / 100 * 0.92) * levelDraw;
 }
 
 export function trafficLabel(state) {
@@ -879,7 +1007,7 @@ function advancePurchasingManager(state) {
   state.nextAutoOrderAt = state.minute + PURCHASING_MANAGER.reviewInterval;
   const now = productNow(state);
   const reserve = PURCHASING_MANAGER.cashReserve;
-  const options = PRODUCTS.map((product) => {
+  const options = availableProducts(state).map((product) => {
     const shelf = qtyOf(state.shelves[product.id].filter((batch) => !isExpired(batch, now)));
     const back = qtyOf(state.stockroom[product.id].filter((batch) => !isExpired(batch, now)));
     const total = shelf + back;
@@ -942,7 +1070,7 @@ function advanceCustomerPhases(state, deltaMinutes) {
  */
 function chooseStaffRestockProduct(state) {
   const now = productNow(state);
-  const candidates = PRODUCTS.map((product) => {
+  const candidates = availableProducts(state).map((product) => {
     const validBackroom = qtyOf(state.stockroom[product.id].filter((batch) => !isExpired(batch, now)));
     const shelf = shelfQuantity(state, product.id);
     const target = product.section === 'produce' ? 12 : product.section === 'chilled' ? 13 : 15;

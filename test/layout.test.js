@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  SLOTS, COOLERS, NAV_BLOCKERS, CAT_PATROLS, SIDEWALK_SPAWN, SIDEWALK_EXITS, DOOR_IN, CHECKOUT, LOU_HOME, MARISOL_HOME,
+  SLOTS, NAV_BLOCKERS, CAT_PATROLS, SIDEWALK_SPAWN, SIDEWALK_EXITS, DOOR_IN, CHECKOUT, LOU_HOME, MARISOL_HOME,
   MANAGER_HOME, PLAYER_HOME, BACKROOM, FRONT_DOOR, navBlocked, findWalkPath, planWalkRoute, routeLength, pointOnRoute,
 } from '../src/layout.js';
 import { PRODUCTS } from '../src/sim.js';
@@ -29,10 +29,12 @@ test('no two products share a shelf slot', () => {
   }
 });
 
-test('the cooler sections cover the back wall without gaps', () => {
-  const [first, ...rest] = COOLERS.sections;
-  let edge = first.x1;
-  for (const section of rest) { assert.equal(section.x0, edge); edge = section.x1; }
+test('the cooler wall starts out as one run of coolers along the back wall, without gaps', async () => {
+  const { PIECES, footprint, INNER } = await import('../src/layout.js');
+  const run = PIECES.filter((p) => p.type === 'cooler' && p.always).map((p) => footprint(p, p.home)).sort((a, b) => a.x - b.x);
+  assert.equal(run.length, 4);
+  for (let i = 1; i < run.length; i++) assert.ok(Math.abs((run[i - 1].x + run[i - 1].w / 2) - (run[i].x - run[i].w / 2)) < 1e-9, 'a gap between two coolers');
+  for (const box of run) assert.ok(Math.abs(box.z - box.d / 2 - INNER.minZ) < 1e-9, 'flat to the back wall');
 });
 
 test('the door opens onto the sidewalk and shoppers can get from the street, to the till, and back out', () => {
@@ -115,14 +117,78 @@ test('a fading wall eases toward its target at the same pace at any frame rate',
 });
 
 test('the tallest thing on each shelf clears the fixture above it', async () => {
-  const { GONDOLA, LEVELS, COOLERS, COOLER_LEVELS, SLOTS } = await import('../src/layout.js');
+  const { GONDOLA, LEVELS, COOLER_HEIGHT, COOLER_LEVELS, SLOTS } = await import('../src/layout.js');
   // Product heights as sculpted (tiles): the engine's grocery props; the tallest on a gondola is the cereal box, in a cooler the cola.
   const heights = { cereal: 0.42, pasta: 0.34, rice: 0.246, beans: 0.158, coffee: 0.286, soda: 0.468, water: 0.354, milk: 0.282, pizza: 0.38 };
   for (const [id, h] of Object.entries(heights)) {
     const slot = SLOTS[id];
-    const ceiling = slot.kind === 'gondola' ? GONDOLA.height - 0.1 : COOLERS.height;
+    const ceiling = slot.kind === 'gondola' ? GONDOLA.height - 0.1 : COOLER_HEIGHT;
     assert.ok(slot.y + h < ceiling, `${id} (${(slot.y + h).toFixed(2)}) reaches the top of its fixture (${ceiling.toFixed(2)})`);
   }
   assert.ok(LEVELS.at(-1) + heights.cereal < GONDOLA.height - 0.1);
-  assert.ok(COOLER_LEVELS.at(-1) + heights.soda < COOLERS.height);
+  assert.ok(COOLER_LEVELS.at(-1) + heights.soda < COOLER_HEIGHT);
+});
+
+test('with every shelf, bin and cooler bought the shop still works: nothing is walled in and every line can be reached', async () => {
+  const { setLayout, PIECES } = await import('../src/layout.js');
+  const { FIXTURES } = await import('../src/sim.js');
+  const ids = FIXTURES.map((f) => f.id);
+  assert.ok(PIECES.every((piece) => piece.fixtures.every((id) => ids.includes(id))), 'every piece belongs to fixtures that can be bought');
+  setLayout([], {});
+  const bare = navBlocked(-5.0, 1.35) || navBlocked(3.2, -2.4) || navBlocked(8.35, -3.5);
+  assert.equal(bare, false, 'nothing is in the way until it is bought');
+  setLayout(ids, {});
+  try {
+    assert.equal(navBlocked(-5.0, 1.35), true, 'a bought bin blocks the floor');
+    assert.equal(navBlocked(3.2, -2.4), true, 'a bought gondola blocks the floor');
+    assert.equal(navBlocked(8.35, -3.5), true, 'a bought cooler blocks the floor');
+    for (const product of PRODUCTS) {
+      const [x, z] = SLOTS[product.id].stand;
+      assert.equal(navBlocked(x, z), false, `${product.id}: the browsing spot (${x}, ${z}) is blocked`);
+      assert.ok(strict(SIDEWALK_SPAWN, [x, 0, z]), `${product.id}: no way from the street`);
+      assert.ok(strict(MARISOL_HOME, [x, 0, z]), `Marisol cannot reach ${product.id}`);
+    }
+    assert.ok(strict(SIDEWALK_SPAWN, CHECKOUT));
+    // Cats find their way round, so every patrol stop has to be somewhere they can stand.
+    for (const patrol of CAT_PATROLS) for (const [x, z] of patrol) assert.ok(!navBlocked(x, z) || nearestWalkable(x, z), `a cat stop at (${x}, ${z})`);
+  } finally { setLayout([], {}); }
+});
+
+test('bought pieces can be moved: shelves and bins stand clear of walls, coolers go flat against one, and nothing may shut the shop off', async () => {
+  const { placementProblem, canPlace, snapPlacement, setLayout, INNER } = await import('../src/layout.js');
+  const all = ['bin-1', 'bin-2', 'bin-3', 'bin-4', 'bin-5', 'shelf-2', 'shelf-3', 'shelf-4', 'shelf-5', 'shelf-6', 'shelf-7', 'cooler-1', 'cooler-2'];
+  // Where they start is fine.
+  const { PIECES: every } = await import('../src/layout.js');
+  for (const piece of every) { assert.equal(placementProblem(piece.id, piece.home, all), null, piece.id); assert.equal(canPlace(piece.id, piece.home, all), null, `${piece.id} at home`); }
+  // Open floor is fine for a shelf or bin, in any turn.
+  for (const rot of [0, 1, 2, 3]) assert.equal(canPlace('bin-1', { x: 2.2, z: 1.0, rot }, all), null, `turn ${rot}`);
+  // But never against a wall, on any side.
+  assert.equal(placementProblem('bin-1', { x: INNER.maxX - 0.65, z: -2, rot: 0 }, ['bin-1']), 'wall');
+  assert.ok(['wall', 'blocked'].includes(placementProblem('gondola-2', { x: 0, z: INNER.maxZ - 0.5, rot: 0 }, all)), 'a shelf cannot stand against the front wall');
+  assert.equal(placementProblem('gondola-2', { x: 0, z: INNER.minZ + 1.1, rot: 0 }, all), 'blocked', 'the cooler wall is in the way of its back');
+  assert.equal(placementProblem('bin-1', { x: 40, z: 0, rot: 0 }, all), 'out');
+  // Not on top of another fixture, nor in the doorway.
+  assert.equal(placementProblem('bin-1', { x: -1.6, z: -2.4, rot: 0 }, all), 'blocked');
+  assert.equal(placementProblem('bin-1', { x: 2.4, z: 5.6, rot: 0 }, all), 'blocked');
+  // A cooler goes flat against a wall, glass facing in, and a floating one is refused.
+  const onFront = snapPlacement('cooler-1', -1, 6.9);
+  assert.deepEqual(onFront, { rot: 2, x: -1, z: INNER.maxZ - 0.5 });
+  assert.equal(canPlace('cooler-1', onFront, all), null, 'against the front wall, where the windows are');
+  const onRight = snapPlacement('cooler-1', 8.8, -5);
+  assert.equal(onRight.rot, 3);
+  assert.equal(canPlace('cooler-1', onRight, all), null);
+  assert.equal(placementProblem('cooler-1', { x: 0, z: 2, rot: 0 }, all), 'needs-wall');
+  assert.equal(placementProblem('cooler-1', { x: 8.35, z: -3.5, rot: 1 }, all), 'needs-wall', 'facing the wrong way');
+  assert.equal(placementProblem('cooler-1', snapPlacement('cooler-1', -8.8, 3), all), 'blocked', 'the produce bins already stand on that wall');
+  // A spot the customers queue on is not for a shelf, even though nothing is built there.
+  assert.equal(placementProblem('bin-1', { x: 4.9, z: 3.0, rot: 0 }, all), null);
+  assert.equal(canPlace('bin-1', { x: 4.9, z: 3.0, rot: 0 }, all), 'door', 'it would sit on the front of the checkout queue');
+  // A moved piece takes its stock with it.
+  setLayout(all, { 'bin-1': { x: 2.2, z: 1.0, rot: 0 } });
+  try {
+    assert.ok(Math.abs(SLOTS.oranges.x - 2.2) < 1e-9 && Math.abs(SLOTS.oranges.z - 1.0) < 1e-9, 'oranges follow their bin');
+    assert.ok(Math.abs(SLOTS.oranges.stand[1] - 2.6) < 1e-9, 'shoppers stand in front of it');
+    assert.equal(navBlocked(2.2, 1.0), true);
+    assert.equal(navBlocked(-5.0, -0.1), false, 'its old place is free floor again');
+  } finally { setLayout([], {}); }
 });

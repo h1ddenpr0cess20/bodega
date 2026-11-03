@@ -648,3 +648,74 @@ test('a delighted cat lover who found nothing does not post a cat rave', () => {
   assert.equal(review.outcome, 'stockout');
   assert.ok(review.rating <= 3);
 });
+
+test('the range is in three tiers by store level, and the new lines also need their fixture bought', async () => {
+  const { TIERS, FIXTURES, isAvailable, availableProducts, buyFixture, fixtureBlock, getStoreLevel } = await import('../src/sim.js');
+  assert.deepEqual(TIERS.map((t) => t.tier), [1, 2, 3]);
+  const state = createGameState(5);
+  const tierOf = (n) => PRODUCTS.filter((p) => p.tier === n);
+  assert.ok(tierOf(1).length > 0 && tierOf(2).length > 0 && tierOf(3).length > 0);
+  assert.ok(tierOf(2).some((p) => !p.fixture), 'some established lines open at tier 2');
+  assert.ok(tierOf(1).every((p) => !p.fixture), 'tier 1 needs nothing bought');
+  assert.deepEqual(availableProducts(state).map((p) => p.id), tierOf(1).map((p) => p.id));
+  assert.equal(placeOrder(state, 'tomatoes', 1).reason, 'not-stocked');
+  assert.equal(placeOrder(state, 'oranges', 1).reason, 'not-stocked');
+
+  // A fixture waits for the level that opens its tier, then for the cash.
+  const bin = FIXTURES.find((f) => f.id === 'bin-1');
+  assert.equal(fixtureBlock(state, 'bin-1'), 'level');
+  assert.equal(buyFixture(state, 'bin-1').reason, 'level-too-low');
+  state.experience = 500;
+  assert.equal(getStoreLevel(state), 3);
+  assert.ok(isAvailable(state, PRODUCT_BY_ID.tomatoes), 'an established tier 2 line opens with the level');
+  assert.ok(!isAvailable(state, PRODUCT_BY_ID.oranges), 'a new line still needs its bin');
+  state.cash = 10;
+  assert.equal(buyFixture(state, 'bin-1').reason, 'insufficient-funds');
+  state.cash = 1000;
+  const bought = buyFixture(state, 'bin-1');
+  assert.ok(bought.ok);
+  assert.equal(state.cash, 1000 - bin.cost);
+  assert.equal(buyFixture(state, 'bin-1').reason, 'already-owned');
+  assert.ok(isAvailable(state, PRODUCT_BY_ID.oranges));
+  assert.ok(!isAvailable(state, PRODUCT_BY_ID.carrots), 'each line has a bin of its own');
+  assert.ok(!isAvailable(state, PRODUCT_BY_ID.onions), 'tier 3 stays shut at level 3');
+  assert.equal(fixtureBlock(state, 'bin-3'), 'level');
+  assert.ok(placeOrder(state, 'oranges', 1).ok);
+  state.experience = 1000;
+  assert.ok(buyFixture(state, 'bin-3').ok);
+  assert.ok(isAvailable(state, PRODUCT_BY_ID.onions));
+});
+
+test('shoppers only ask for lines that are on sale, and old saves gain the new lines', async () => {
+  const { availableProducts } = await import('../src/sim.js');
+  const state = createGameState(9);
+  const open = new Set(availableProducts(state).map((p) => p.id));
+  for (let i = 0; i < 200; i++) for (const line of buildBasket(state, RESIDENTS[i % RESIDENTS.length])) assert.ok(open.has(line.productId), line.productId);
+  const old = JSON.parse(saveGameState(state));
+  for (const id of ['oranges', 'chips', 'bacon']) { delete old.shelves[id]; delete old.stockroom[id]; delete old.prices[id]; }
+  delete old.fixtures;
+  const loaded = loadGameState(old);
+  assert.deepEqual(loaded.fixtures, []);
+  assert.deepEqual(loaded.shelves.oranges, []);
+  assert.equal(loaded.prices.chips, PRODUCT_BY_ID.chips.price);
+});
+
+test('everything on the floor can be moved from the first day, and the shelf stock moves with it', async () => {
+  const { placeFixture, standingPieces } = await import('../src/sim.js');
+  const { SLOTS, setLayout } = await import('../src/layout.js');
+  const state = createGameState(3);
+  const ids = standingPieces(state).map(({ piece }) => piece.id);
+  for (const id of ['pantry', 'produce-1', 'bakery', 'cooler-dairy', 'cooler-frozen']) assert.ok(ids.includes(id), `${id} can be moved`);
+  assert.ok(!ids.includes('bin-1') && !ids.includes('gondola-2'), 'what is not bought yet is not on the floor');
+  // The pantry gondola goes to open floor and its stock goes with it.
+  const before = { ...SLOTS.rice };
+  assert.ok(placeFixture(state, 'pantry', { x: 1.0, z: 0.5, rot: 0 }).ok);
+  setLayout(state.fixtures, state.layout);
+  try {
+    assert.ok(Math.abs(SLOTS.rice.x - 1.0) < 1e-9 && SLOTS.rice.z !== before.z, 'rice moved with the gondola');
+    // A cooler slides along a wall, and cannot be pulled off it.
+    assert.equal(placeFixture(state, 'cooler-dairy', { x: -1, z: 4.2, rot: 0 }).reason, 'needs-wall');
+    assert.ok(placeFixture(state, 'bakery', { x: 2.0, z: 3.5, rot: 0 }).ok, 'the bakery table moves too');
+    assert.equal(placeFixture(state, 'bin-1', { x: 0, z: 0, rot: 0 }).reason, 'not-owned');
+  } finally { setLayout([], {}); }
+});
