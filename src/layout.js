@@ -17,7 +17,7 @@ export const SIDEWALK = { minZ: 7.15, maxZ: 10.2 };
 
 // ——— shelving ———
 export const LEVELS = [0.42, 1.04, 1.66];                     // shelf boards on the dry-goods gondola
-export const GONDOLA = { x: -1.6, z: -2.4, length: 4.0, depth: 1.0, height: 1.95 };
+export const GONDOLA = { x: -1.6, z: -2.4, length: 4.0, depth: 1.0, height: 2.25 };   // tall enough that a cereal box on the top shelf clears the cap
 export const COOLER_LEVELS = [0.46, 1.2];
 export const COOLERS = {
   zBack: -6.85, depth: 1.0, height: 1.95,
@@ -92,6 +92,29 @@ export const CAT_PATROLS = [
   [[0.4, 4.2], [4.6, 4.2], [4.6, 5.9], [0.4, 5.9]],
 ];
 
+/**
+ * The street furniture round the shop, from the engine's `scenery/street` (world.js stands the
+ * models up; see streetscape.js). x runs along the street, z from the alley (negative) out to the
+ * road. Each stands on y = 0 facing +z, turned by `yaw`; `r` is the room it takes up, which people
+ * walk round.
+ */
+export const STREET_ITEMS = [
+  // Sodium lamps along the curb, their arms out over the road.
+  { model: 'streetlamp', x: -3.4, z: 10.05, yaw: -Math.PI / 2, r: 0.2 },
+  { model: 'streetlamp', x: 7.6, z: 10.05, yaw: -Math.PI / 2, r: 0.2 },
+  { model: 'hydrant', x: 5.2, z: 10.05, yaw: 0, r: 0.25 },
+  { model: 'mailbox', x: 9.9, z: 10.0, yaw: -0.2, r: 0.3 },
+  { model: 'bin', x: -8.6, z: 10.0, yaw: 0.3, r: 0.4 },
+  { model: 'bench', x: -11.4, z: 9.95, yaw: 0, r: 0.8 },
+  // Shrubs either side of the door.
+  { model: 'shrub', x: 1.0, z: 7.85, yaw: 0.4, scale: 1.5, r: 0.5 },
+  { model: 'shrub', x: 3.8, z: 7.85, yaw: 2.1, scale: 1.5, r: 0.5 },
+  // The alley behind the delivery door.
+  { model: 'dumpster', x: 8.0, z: -9.4, yaw: 0, r: 1.0 },
+  { model: 'bin', x: -3.4, z: -8.3, yaw: 2.6, r: 0.4 },
+];
+
+
 // ——— navigation ———
 // Footprints are inflated by `clearance` so a shopper has room for their
 // shoulders; the same grid drives shoppers, staff, cats and the owner.
@@ -115,6 +138,7 @@ export const NAV_BLOCKERS = [
   { x: (COOLERS.sections[0].x0 + COOLERS.sections.at(-1).x1) / 2, z: COOLERS.zBack + COOLERS.depth / 2, w: COOLERS.sections.at(-1).x1 - COOLERS.sections[0].x0, d: COOLERS.depth },
   { x: COUNTER.x, z: COUNTER.z, w: COUNTER.w, d: COUNTER.d },
   { x: BACKBAR.x, z: BACKBAR.z, w: BACKBAR.w, d: BACKBAR.d },
+  ...STREET_ITEMS.map((p) => ({ x: p.x, z: p.z, w: p.r * 2, d: p.r * 2 })),
 ];
 
 export function navBlocked(x, z) {

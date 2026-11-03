@@ -3,10 +3,11 @@ import { createStage } from 'madness-engine/stage';
 import { createView } from 'madness-engine/view';
 import { createModel, createStatic } from 'madness-engine/models/model';
 import { createBakeLibrary } from 'madness-engine/models/bake';
+import { bake as legacyBake } from 'madness-engine/models/legacy-bake';
 import { floorTexture, wallTexture } from 'madness-engine/textures/venue';
 import { paintRoom } from 'madness-engine/textures/rooms/town';
 import { paintSky } from 'madness-engine/textures/skies/haze';
-import { screenMovementToWorld } from './controls.js';
+import { screenMovementToWorld, startsCameraDrag, holdsCameraDrag, endsCameraDrag } from './controls.js';
 import { PRODUCTS, CAT_ROSTER, STAFF, PRODUCT_BY_ID, RESIDENTS, RESIDENT_BY_ID, shelfQuantity, stockroomQuantity, activeFrameDelta } from './sim.js';
 import {
   SHELL, FRONT_DOOR, REAR_DOOR, BACKROOM, SIDEWALK, LEVELS, GONDOLA, COOLER_LEVELS, COOLERS, PRODUCE_X, PRODUCE_Z, BAKERY, COUNTER,
@@ -15,6 +16,7 @@ import {
 } from './layout.js';
 import { wallOpacity, easeOpacity, WALL_MODES } from './walls.js';
 import { CAST, DETAIL, loadingJobs, backgroundJobs, FIRST_WAVE } from './cast.js';
+import { STREETSCAPE, STREET_MODELS } from './streetscape.js';
 
 const PLAYER_SPEED = 2.25;
 const HUMAN_HEIGHT = 1.42;
@@ -142,19 +144,23 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
     return mesh;
   }
 
-  // Brick that keeps its scale on any size of wall: the UVs follow the box's dimensions.
+  // Brick that keeps its scale and its alignment on any wall: the UVs follow world position.
   const wallTex = wallTexture(GFX, 'brick');
   const wallMap = new GFX.CanvasTexture(wallTex.map.image);
   wallMap.colorSpace = GFX.SRGBColorSpace; wallMap.wrapS = wallMap.wrapT = GFX.RepeatWrapping;
   const wallBump = new GFX.CanvasTexture(wallTex.bump.image);
   wallBump.wrapS = wallBump.wrapT = GFX.RepeatWrapping;
-  function scaleBrickUV(geometry, w, h, d) {
-    const uv = geometry.attributes.uv;
-    if (!uv) return;
-    const faces = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];   // +x −x +y −y +z −z
+  function alignBrickUV(mesh) {
+    const g = mesh.geometry, pos = g.attributes.position, nor = g.attributes.normal, uv = g.attributes.uv;
+    if (!uv || !pos || !nor) return;
+    const { x: ox, y: oy, z: oz } = mesh.position;
     for (let i = 0; i < uv.count; i++) {
-      const [fw, fh] = faces[Math.min(5, Math.floor(i / 4))];
-      uv.setXY(i, uv.getX(i) * fw / BRICK_TILE, uv.getY(i) * fh / BRICK_TILE);
+      const x = pos.getX(i) + ox, y = pos.getY(i) + oy, z = pos.getZ(i) + oz;
+      // The pattern follows the world, not the box: along the wall and up it (or across a top face), so every wall,
+      // partition and base course shares one pattern and their courses and joints line up.
+      if (Math.abs(nor.getY(i)) > 0.5) uv.setXY(i, x / BRICK_TILE, z / BRICK_TILE);
+      else if (Math.abs(nor.getX(i)) > 0.5) uv.setXY(i, z / BRICK_TILE, y / BRICK_TILE);
+      else uv.setXY(i, x / BRICK_TILE, y / BRICK_TILE);
     }
     uv.needsUpdate = true;
   }
@@ -176,8 +182,8 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
     w.brick = (x, y, z, bw, bh, bd, tint = '#a8a092') => {
       const m = material(`brick${tint}`, () => new GFX.MeshStandardMaterial({ color: tint, map: wallMap, bumpMap: wallBump, bumpScale: 0.09, roughness: 0.9 }));
       const mesh = new GFX.Mesh(new GFX.BoxGeometry(bw, bh, bd), m);
-      scaleBrickUV(mesh.geometry, bw, bh, bd);
       mesh.position.set(x, y, z); mesh.castShadow = true; mesh.receiveShadow = true;
+      alignBrickUV(mesh);
       group.add(mesh); w.meshes.push(mesh);
       return mesh;
     };
@@ -215,9 +221,13 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
 
   // ——— the ground: street, sidewalk, alley ———
   box(scene, 0, -0.55, 0, 140, 0.4, 140, mats.asphalt, { castShadow: false });
-  box(scene, 0, -0.15, 8.675, 60, 0.3, SIDEWALK.maxZ - SIDEWALK.minZ + 0.3, mats.sidewalk, { castShadow: false });      // the sidewalk
-  box(scene, 0, -0.1, 10.45, 60, 0.4, 0.3, mats.concrete, { castShadow: false });                                      // the curb
-  box(scene, 0, -0.145, -11, 60, 0.3, 8.2, mats.sidewalk, { castShadow: false });                                       // the alley behind
+  const sidewalkFar = SIDEWALK.maxZ + 0.15;
+  box(scene, 0, -0.15, (SIDEWALK.minZ + sidewalkFar) / 2, 60, 0.3, sidewalkFar - SIDEWALK.minZ, mats.sidewalk, { castShadow: false });   // the sidewalk, from the wall to the curb
+  box(scene, 0, -0.13, 10.45, 60, 0.46, 0.3, mats.concrete, { castShadow: false });                                    // the curb, down to the road
+  box(scene, 0, -0.15, -11.15, 60, 0.3, 8, mats.sidewalk, { castShadow: false });                                       // the alley behind
+  // A threshold in each doorway, a hair proud of the floor and the pavement it joins, so they never share a plane.
+  box(scene, 2.4, -0.094, 7, 1.5, 0.2, 0.3, mats.concrete, { castShadow: false });
+  box(scene, -5.7, -0.094, -7, 1.3, 0.2, 0.3, mats.concrete, { castShadow: false });
   for (let x = -27; x <= 27; x += 4.5) box(scene, x, -0.345, 14, 2.2, 0.02, 0.2, mats.paint, { castShadow: false, receiveShadow: false });
 
   // ——— the floor ———
@@ -226,7 +236,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   floorMap.colorSpace = GFX.SRGBColorSpace; floorMap.wrapS = floorMap.wrapT = GFX.RepeatWrapping; floorMap.repeat.set(9, 7);
   const floorBump = new GFX.CanvasTexture(floorTex.bump.image);
   floorBump.wrapS = floorBump.wrapT = GFX.RepeatWrapping; floorBump.repeat.set(9, 7);
-  box(scene, 0, -0.16, 0, 18.3, 0.3, 14.3, new GFX.MeshStandardMaterial({ color: '#b8b0a0', map: floorMap, bumpMap: floorBump, bumpScale: 0.08, roughness: 0.82 }), { castShadow: false });
+  box(scene, 0, -0.15, 0, 18.2, 0.3, 14.2, new GFX.MeshStandardMaterial({ color: '#b8b0a0', map: floorMap, bumpMap: floorBump, bumpScale: 0.08, roughness: 0.82 }), { castShadow: false });
   const br = BACKROOM;
   box(scene, (br.minX + br.maxX) / 2, 0.006, (br.minZ + br.maxZ) / 2, br.maxX - br.minX, 0.014, br.maxZ - br.minZ, mats.concrete, { castShadow: false });   // the backroom's concrete
   box(scene, FRONT_DOOR.x, 0.01, 6.2, 1.6, 0.02, 0.9, mats.rubber, { castShadow: false });                                                                 // the doormat
@@ -239,25 +249,29 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   // Always visible, so the footprint reads even when the walls are ghosts: a low brick plinth round the building.
   const plinth = new GFX.Group(); scene.add(plinth);
   const plinthMat = new GFX.MeshStandardMaterial({ color: '#8f8576', map: wallMap, bumpMap: wallBump, bumpScale: 0.09, roughness: 0.9 });
-  const plinthBox = (x, z, bw, bd) => { const mesh = new GFX.Mesh(new GFX.BoxGeometry(bw, 0.34, bd), plinthMat); scaleBrickUV(mesh.geometry, bw, 0.34, bd); mesh.position.set(x, 0.17, z); mesh.castShadow = true; mesh.receiveShadow = true; plinth.add(mesh); };
-  plinthBox(0, -(Z + T / 2 - 0.15), W * 2 + T * 2, T);
-  plinthBox(-(W + T / 2 - 0.15), 0, T, Z * 2);
-  plinthBox(W + T / 2 - 0.15, 0, T, Z * 2);
-  plinthBox((-W - 0.3 + dl) / 2, Z + T / 2 - 0.15, dl + W + 0.3, T);
-  plinthBox((dr + W + 0.3) / 2, Z + T / 2 - 0.15, W + 0.3 - dr, T);
+  // The plinth stands 3 cm proud of the wall on each side, so its faces are never in the wall's plane.
+  const plinthBox = (x, z, bw, bd) => { const mesh = new GFX.Mesh(new GFX.BoxGeometry(bw, 0.34, bd), plinthMat); mesh.position.set(x, 0.17, z); alignBrickUV(mesh); mesh.castShadow = true; mesh.receiveShadow = true; plinth.add(mesh); };
+  const PL = 0.06;
+  // Front and back plinths run the full width; the side ones run only between them, so no two share a face at a corner.
+  const E = W + T / 2 + PL / 2;                                  // the plinth's outer edge
+  plinthBox(0, -(Z + T / 2 - 0.15), E * 2, T + PL);
+  plinthBox(-(W + T / 2 - 0.15), 0, T + PL, Z * 2 - T - PL);
+  plinthBox(W + T / 2 - 0.15, 0, T + PL, Z * 2 - T - PL);
+  plinthBox((-E + dl) / 2, Z + T / 2 - 0.15, dl + E, T + PL);
+  plinthBox((dr + E) / 2, Z + T / 2 - 0.15, E - dr, T + PL);
 
   // Front: a storefront. Brick bulkhead, piers, a header with the sign, glass between, a glass door.
   const front = wall('front', { normal: [0, 1] });
   const fz = Z + T / 2 - 0.15;
   const windowBottom = 0.95, windowTop = 3.15;
-  const spanL = [[-W - T, -8.4], [-4.3, -3.9], [1.2, dl]];            // piers either side of the left windows
+  const spanL = [[-W - T / 2, -8.4], [-4.3, -3.9], [1.2, dl]];            // piers either side of the left windows
   const panes = [[-8.4, -4.3], [-3.9, 1.2], [3.6, 8.4]];              // the three display windows
-  front.brick((-W - T + dl) / 2, windowBottom / 2, fz, dl + W + T, windowBottom, T);          // left bulkhead
-  front.brick((dr + W + T) / 2, windowBottom / 2, fz, W + T - dr, windowBottom, T);            // right bulkhead
+  front.brick((-W - T / 2 + dl) / 2, windowBottom / 2, fz, dl + W + T / 2, windowBottom, T);          // left bulkhead
+  front.brick((dr + W + T / 2) / 2, windowBottom / 2, fz, W + T / 2 - dr, windowBottom, T);            // right bulkhead
   for (const [a, b] of spanL) front.brick((a + b) / 2, (windowBottom + windowTop) / 2, fz, b - a, windowTop - windowBottom, T);
   front.brick((dr + 3.6) / 2, (windowBottom + windowTop) / 2, fz, 3.6 - dr, windowTop - windowBottom, T);   // pier by the door
-  front.brick((8.4 + W + T) / 2, (windowBottom + windowTop) / 2, fz, W + T - 8.4, windowTop - windowBottom, T);
-  front.brick(0, (windowTop + H) / 2, fz, W * 2 + T * 2, H - windowTop, T);                   // the header, all along
+  front.brick((8.4 + W + T / 2) / 2, (windowBottom + windowTop) / 2, fz, W + T / 2 - 8.4, windowTop - windowBottom, T);
+  front.brick(0, (windowTop + H) / 2, fz, W * 2 + T, H - windowTop, T);                   // the header, all along
   for (const [a, b] of panes) {
     const cx = (a + b) / 2, bw = b - a, ch = (windowBottom + windowTop) / 2;
     front.glass(cx, ch, fz, bw, windowTop - windowBottom, 0.05);
@@ -285,7 +299,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   leafPart(-leafW + 0.22, 1.05, 0.05, 0.5, 0.1, 'metal', () => std('#c9ced1', { metalness: 0.8, roughness: 0.3 }));       // the push bar
   // The awning over the windows, and the sign above it.
   for (let i = 0; i < 18; i++) {
-    const stripe = front.box(-W + 0.5 + i * ((W * 2 - 1) / 17), 3.55, Z + 0.95, (W * 2 - 1) / 17 + 0.01, 0.06, 2.1, i % 2 ? 'awnA' : 'awnB', () => std(i % 2 ? '#e9e3d0' : '#2f6b57', { roughness: 0.9 }), { rotation: [0.36, 0, 0] });
+    const stripe = front.box(-W + 0.5 + i * ((W * 2 - 1) / 17), 3.55, Z + 0.95, (W * 2 - 1) / 17 + 0.003, 0.06, 2.1, i % 2 ? 'awnA' : 'awnB', () => std(i % 2 ? '#e9e3d0' : '#2f6b57', { roughness: 0.9 }), { rotation: [0.36, 0, 0] });
     stripe.castShadow = true;
   }
   front.plane('BODEGA', 0, 4.0, Z + 0.17, 7.4, 0.8, { background: '#1d2c2f', foreground: '#f6e8ca', accent: '#e07355', fontSize: 70, width: 1024, height: 112 });
@@ -294,8 +308,8 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   const back = wall('back', { normal: [0, -1] });
   const bz = -(Z + T / 2 - 0.15);
   const rl = REAR_DOOR.x - REAR_DOOR.width / 2, rr = REAR_DOOR.x + REAR_DOOR.width / 2;
-  back.brick((-W - T + rl) / 2, H / 2, bz, rl + W + T, H, T);
-  back.brick((rr + W + T) / 2, H / 2, bz, W + T - rr, H, T);
+  back.brick((-W - T / 2 + rl) / 2, H / 2, bz, rl + W + T / 2, H, T);
+  back.brick((rr + W + T / 2) / 2, H / 2, bz, W + T / 2 - rr, H, T);
   back.brick(REAR_DOOR.x, (2.4 + H) / 2, bz, REAR_DOOR.width, H - 2.4, T);
   back.box(REAR_DOOR.x, 1.2, bz + 0.05, REAR_DOOR.width - 0.06, 2.4, 0.08, 'rear', () => std('#44545a', { metalness: 0.6, roughness: 0.45 }));
   back.box(REAR_DOOR.x + 0.45, 1.1, bz + 0.12, 0.08, 0.3, 0.06, 'handle', () => std('#c9ced1', { metalness: 0.8, roughness: 0.3 }));
@@ -307,7 +321,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   const right = wall('right', { normal: [1, 0] });
   for (const [w, sx] of [[left, -1], [right, 1]]) {
     const wx = sx * (W + T / 2 - 0.15);
-    w.brick(wx, H / 2, 0, T, H, Z * 2 + T);
+    w.brick(wx, H / 2, 0, T, H, Z * 2 - T);                          // between the front and back walls, not overlapping them
     const windows = sx < 0 ? [1.4, 4.4] : [-3.4, -0.6];
     for (const z of windows) fakeWindow(w, { cx: wx - sx * 0.17, cy: 2.2, cz: z, w: 1.7, h: 1.5, axis: 'z' });
   }
@@ -317,7 +331,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   // The backroom's own walls, shorter than the shell: they hide the room from either side, so they fade from both.
   const partitionH = 3.0;
   const partNS = wall('backroom-east', { normal: [1, 0], both: true });
-  partNS.brick(br.maxX, partitionH / 2, (br.minZ + br.maxZ) / 2, T, partitionH, br.maxZ - br.minZ + T, '#b9b2a2');
+  partNS.brick(br.maxX, partitionH / 2, (br.minZ + br.maxZ - T / 2) / 2, T, partitionH, br.maxZ - T / 2 - br.minZ, '#b9b2a2');   // from the back wall to the south partition's face
   partNS.plane('STOCKROOM', br.maxX + 0.17, 2.3, -4.3, 1.8, 0.36, { background: '#3d5148', foreground: '#f4e9d1', accent: '#d6b578', fontSize: 40, width: 576, height: 92 }, Math.PI / 2);
   const partEW = wall('backroom-south', { normal: [0, 1], both: true });
   const gapL = br.doorX - br.doorWidth / 2, gapR = br.doorX + br.doorWidth / 2;
@@ -343,29 +357,25 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   }
   { const light = new GFX.PointLight('#ffe6b8', 8, 6, 1.6); light.position.set(-6.7, 2.6, -4.5); scene.add(light); }
 
-  // ——— the street out front ———
-  const lamp = (x, z) => {
-    cylinder(scene, x, 2.0, z, 0.06, 0.09, 4.0, mats.steelDark, 10);
-    box(scene, x, 4.0, z + 0.4, 0.12, 0.1, 0.9, mats.steelDark);
-    box(scene, x, 3.92, z + 0.75, 0.35, 0.08, 0.2, mats.bulb, { castShadow: false });
-  };
-  lamp(-3.4, 9.9); lamp(7.6, 9.9);
-  for (const x of [dl - 0.55, dr + 0.55]) {                                     // planters flanking the door
-    box(scene, x, 0.3, Z + 0.7, 0.8, 0.6, 0.6, mats.woodDark);
-    sphere(scene, x, 0.75, Z + 0.7, 0.4, mats.leaf, [1, 0.8, 0.9]);
+  // ——— the street out front and the alley behind: the engine's own street furniture ———
+  const streetBakes = new Map();
+  for (const placement of STREETSCAPE) {
+    if (!streetBakes.has(placement.model)) streetBakes.set(placement.model, legacyBake(GFX, STREET_MODELS[placement.model]));
+    const { geometry, materials } = streetBakes.get(placement.model);
+    const mesh = new GFX.Mesh(geometry, materials);
+    mesh.position.set(placement.x, 0, placement.z);
+    mesh.rotation.y = placement.yaw ?? 0;
+    mesh.scale.setScalar(placement.scale ?? 1);
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    scene.add(mesh);
   }
-  cylinder(scene, 6.4, 0.38, 9.7, 0.14, 0.17, 0.76, std('#b8352b', { roughness: 0.5 }), 12);
-  sphere(scene, 6.4, 0.82, 9.7, 0.15, std('#b8352b', { roughness: 0.5 }));
-  cylinder(scene, -7.6, 0.45, 9.2, 0.3, 0.26, 0.9, mats.steelDark, 14);
-  box(scene, -7.6, 0.92, 9.2, 0.66, 0.06, 0.66, mats.metal);
-  box(scene, 9.2, 0.55, -9.2, 2.6, 1.1, 1.3, std('#3d5a47', { roughness: 0.7 }));                      // the dumpster in the alley
 
   // ——— shelving and fixtures ———
   onProgress('Setting up shelves and the checkout', 70);
   const shelfLabels = new Map();
   function gondola() {
     const { x, z, length, depth, height } = GONDOLA;
-    box(scene, x, 0.16, z, length, 0.22, depth + 0.1, mats.dark);
+    box(scene, x, 0.16, z, length + 0.06, 0.22, depth + 0.1, mats.dark);
     for (const sx of [-1, 1]) box(scene, x + sx * (length / 2 - 0.05), height / 2, z, 0.1, height, depth, mats.metal);
     box(scene, x, height / 2, z, length - 0.2, height - 0.1, 0.08, mats.steelDark);
     for (const level of LEVELS) for (const s of [-1, 1]) box(scene, x, level - 0.03, z + s * 0.28, length - 0.12, 0.05, 0.52, mats.woodLight);
@@ -375,15 +385,18 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   function coolers() {
     const { zBack, depth, height, sections } = COOLERS;
     const x0 = sections[0].x0, x1 = sections.at(-1).x1;
-    box(scene, (x0 + x1) / 2, 0.15, zBack + depth / 2, x1 - x0, 0.3, depth, mats.steelDark);                      // compressor plinth
-    box(scene, (x0 + x1) / 2, height / 2 + 0.15, zBack + 0.04, x1 - x0, height, 0.08, std('#cfd8d8', { roughness: 0.5 }));
+    // The compressor plinth is set back from the glass (so the glass never shares its front plane), and the
+    // back panel stands a centimeter off the wall (so its back face is not in the plinth's or the wall's plane).
+    box(scene, (x0 + x1) / 2, 0.15, zBack + (depth - 0.05) / 2, x1 - x0 + 0.06, 0.3, depth - 0.05, mats.steelDark);
+    box(scene, (x0 + x1) / 2, height / 2 + 0.15, zBack + 0.05, x1 - x0, height, 0.08, std('#cfd8d8', { roughness: 0.5 }));
     box(scene, (x0 + x1) / 2, height + 0.2, zBack + depth / 2, x1 - x0 + 0.1, 0.16, depth + 0.06, mats.steelDark);   // the canopy
     box(scene, (x0 + x1) / 2, height + 0.05, zBack + depth - 0.06, x1 - x0, 0.05, 0.05, mats.led, { castShadow: false });
+    // One post at every section boundary (neighboring sections used to each stand one there, in the same place).
+    for (const edge of [...sections.map((sec) => sec.x0), sections.at(-1).x1]) box(scene, edge, height / 2 + 0.15, zBack + depth - 0.02, 0.08, height, 0.1, mats.metal);
     for (const sec of sections) {
       const cx = (sec.x0 + sec.x1) / 2, sw = sec.x1 - sec.x0;
       for (const level of COOLER_LEVELS) box(scene, cx, level - 0.03, zBack + 0.5, sw - 0.06, 0.05, 0.84, mats.metal);
-      box(scene, cx, height / 2 + 0.15, zBack + depth - 0.02, sw - 0.04, height - 0.1, 0.04, mats.glass, { castShadow: false });
-      for (const edge of [sec.x0, sec.x1]) box(scene, edge, height / 2 + 0.15, zBack + depth - 0.02, 0.08, height, 0.1, mats.metal);
+      box(scene, cx, (0.3 + height + 0.1) / 2, zBack + depth - 0.02, sw - 0.04, height - 0.2, 0.04, mats.glass, { castShadow: false });   // above the plinth, not overlapping it
       box(scene, cx, height / 2 + 0.15, zBack + depth - 0.01, 0.05, height - 0.1, 0.07, mats.metal);
       signPlane(scene, sec.label, cx, height + 0.2, zBack + depth + 0.04, Math.min(3, sw - 0.3), 0.3, { background: '#38545a', foreground: '#eef3e5', accent: '#b3d9d2', fontSize: 38, width: 768, height: 80 });
     }
@@ -392,8 +405,8 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
     PRODUCE_Z.forEach((z) => {
       const group = new GFX.Group(); group.position.set(PRODUCE_X, 0, z); scene.add(group);
       box(group, 0, 0.18, 0, 1.3, 0.36, 1.3, mats.wood);
-      box(group, 0.62, 0.42, 0, 0.08, 0.3, 1.3, mats.woodLight);                       // the low lip on the aisle side
-      box(group, -0.6, 0.55, 0, 0.1, 0.9, 1.3, mats.woodLight);                       // the tilted back
+      box(group, 0.62, 0.42, 0, 0.08, 0.3, 1.34, mats.woodLight);                      // the low lip on the aisle side
+      box(group, -0.61, 0.55, 0, 0.1, 0.9, 1.34, mats.woodLight);                      // the tall back
       box(group, -0.04, 0.4, 0, 1.12, 0.04, 1.14, mats.woodDark);
     });
   }
@@ -481,7 +494,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
     }
     // The shelf-edge tag for each line.
     const tag = new GFX.Mesh(new GFX.PlaneGeometry(Math.min(0.9, slot.width * 0.8), 0.22), new GFX.MeshBasicMaterial({ map: labelTexture(product.short), side: GFX.FrontSide }));
-    tag.position.set(0, slot.kind === 'bin' ? -0.1 : -0.14, slot.depth / 2 + (slot.kind === 'bin' ? 0.58 : 0.03));
+    tag.position.set(0, slot.kind === 'bin' ? -0.1 : -0.14, slot.depth / 2 + (slot.kind === 'bin' ? 0.58 : slot.kind === 'gondola' ? 0.06 : 0.03));   // a gondola's tags hang clear of its base, not in its plane
     if (slot.kind === 'bin') tag.rotation.x = -0.2;
     group.add(tag);
     shelfLabels.set(product.id, tag);
@@ -868,22 +881,27 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
     if (stage.lantern) stage.lantern.intensity = 1.1 + Math.sin(realTime * 0.8) * 0.04;
   }
 
-  // ——— camera: drag to orbit, wheel to zoom ———
+  // ——— camera: middle-button drag to orbit (a finger on touch screens), wheel to zoom ———
   let dragging = null;
   host.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0) return;
+    if (!startsCameraDrag(event)) return;
+    event.preventDefault();
     dragging = { id: event.pointerId, x: event.clientX, y: event.clientY };
     host.setPointerCapture?.(event.pointerId);
   });
   host.addEventListener('pointermove', (event) => {
     if (!dragging || dragging.id !== event.pointerId) return;
+    if (!holdsCameraDrag(event)) { dragging = null; return; }                 // the button was let go somewhere we didn't see
     const dx = event.clientX - dragging.x, dy = event.clientY - dragging.y;
     dragging.x = event.clientX; dragging.y = event.clientY;
     stage.view.turn(-dx * 0.006, dy * 0.0038);
   });
-  const stopDrag = () => { dragging = null; };
+  const stopDrag = (event) => { if (dragging && dragging.id === event.pointerId && endsCameraDrag(event)) dragging = null; };
   host.addEventListener('pointerup', stopDrag);
-  host.addEventListener('pointercancel', stopDrag);
+  host.addEventListener('pointercancel', (event) => { if (dragging?.id === event.pointerId) dragging = null; });
+  // Keep the browser's own middle-click behavior (autoscroll, paste) off the scene.
+  host.addEventListener('mousedown', (event) => { if (event.button === 1) event.preventDefault(); });
+  host.addEventListener('auxclick', (event) => { if (event.button === 1) event.preventDefault(); });
   host.addEventListener('wheel', (event) => {
     event.preventDefault();
     stage.view.zoomBy(Math.exp(event.deltaY * 0.001));
