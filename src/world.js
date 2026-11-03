@@ -1,85 +1,27 @@
 import * as GFX from 'madness-engine/gfx';
 import { createStage } from 'madness-engine/stage';
 import { createView } from 'madness-engine/view';
-import { createModel } from 'madness-engine/models/model';
-import { screenMovementToWorld } from './controls.js';
-import { cloth, person } from 'madness-engine/characters/person';
-import purchasingSuit from 'madness-engine/characters/suit';
+import { createModel, createStatic } from 'madness-engine/models/model';
+import { createBakeLibrary } from 'madness-engine/models/bake';
 import { floorTexture, wallTexture } from 'madness-engine/textures/venue';
 import { paintRoom } from 'madness-engine/textures/rooms/town';
 import { paintSky } from 'madness-engine/textures/skies/haze';
-import gent from 'madness-engine/characters/gent';
-import vendor from 'madness-engine/characters/vendor';
-import tourist from 'madness-engine/characters/tourist';
-import punk from 'madness-engine/characters/punk';
-import hippie from 'madness-engine/characters/hippie';
-import artist from 'madness-engine/characters/artist';
-import hipster from 'madness-engine/characters/hipster';
-import cabbie from 'madness-engine/characters/cabbie';
-import nonna from 'madness-engine/characters/nonna';
-import beerguy from 'madness-engine/characters/beerguy';
-import salaryman from 'madness-engine/characters/salaryman';
-import pizzaiolo from 'madness-engine/characters/pizzaiolo';
-import skater from 'madness-engine/characters/skater';
-import { CAT_DEFS } from 'madness-engine/characters/cat';
-import { PRODUCTS, CAT_ROSTER, STAFF, PRODUCT_BY_ID, shelfQuantity, activeFrameDelta } from './sim.js';
+import { screenMovementToWorld } from './controls.js';
+import { PRODUCTS, CAT_ROSTER, STAFF, PRODUCT_BY_ID, RESIDENTS, RESIDENT_BY_ID, shelfQuantity, stockroomQuantity, activeFrameDelta } from './sim.js';
+import {
+  SHELL, FRONT_DOOR, REAR_DOOR, BACKROOM, SIDEWALK, LEVELS, GONDOLA, COOLER_LEVELS, COOLERS, PRODUCE_X, PRODUCE_Z, BAKERY, COUNTER,
+  BACKBAR, BACKROOM_FIXTURES, SLOTS, DOOR_IN, SIDEWALK_SPAWN, SIDEWALK_EXITS, CHECKOUT, LOU_HOME, MARISOL_HOME, MANAGER_HOME, PLAYER_HOME,
+  CAT_PATROLS, navBlocked, nearestWalkable, findWalkPath, planWalkRoute, routeLength, pointOnRoute,
+} from './layout.js';
+import { wallOpacity, easeOpacity, WALL_MODES } from './walls.js';
+import { CAST, DETAIL, loadingJobs, backgroundJobs, FIRST_WAVE } from './cast.js';
 
-const CUSTOMER_MODELS = { tourist, punk, hippie, artist, hipster, cabbie, nonna, beerguy, salaryman, pizzaiolo, skater };
-const OWNER_CHARACTER = person({
-  name: 'bodega-owner',
-  scale: 1.44,
-  b: 0.98,
-  shape: { legs: 1.02, torso: 1.0, head: 1.0, girth: 0.98 },
-  skin: '#d5a17f',
-  look: {
-    torso: cloth('#72907d', '#415c4d'),
-    sleeve: cloth('#72907d', '#415c4d'),
-    cuff: '#d5a17f',
-    legs: cloth('#354b61', '#202f40'),
-    boot: '#49413a',
-    sole: '#242326',
-  },
-  mats: { torso: 'cloth', sleeve: 'cloth', cuff: 'skin', legs: 'denim', boot: 'leather' },
-  face: { eyeColor: '#3d3028', brow: '#38271e', mood: 0 },
-  hair: { color: cloth('#30231c', '#17110d'), locks: [[[0, 0.785, 0.05], [0, 0.8, 0.12], 0.035], [[0.05, 0.77, 0.0], [0.09, 0.72, -0.03], 0.03], [[-0.05, 0.77, 0.0], [-0.09, 0.72, -0.03], 0.03]] },
-});
-const PLAYER_HOME = [0.35, 0, 5.15];
 const PLAYER_SPEED = 2.25;
-
-const EXIT = [4.6, 0, 5.8];
-const CHECKOUT = [4.05, 0, 4.65];
-const BACKROOM = [-6.3, 0, 4.55];
 const HUMAN_HEIGHT = 1.42;
 const CAT_HEIGHT = 0.31;
-
-// Store fixtures are separated into distinct islands with a broad circulation
-// spine and a usable cross-aisle. Product anchors sit beside, never inside, them.
-const DISPLAY = {
-  apples: [-7.1, 0, -4.8], bananas: [-5.55, 0, -4.8], tomatoes: [-7.1, 0, -3.3], lettuce: [-5.55, 0, -3.3], potatoes: [-6.3, 0, -1.8],
-  bread: [-6.3, 0, 0.45],
-  rice: [-3.55, 0, -4.55], pasta: [-1.95, 0, -4.55], cereal: [-0.35, 0, -4.55], beans: [-3.2, 0, -1.35], coffee: [-1.55, 0, -1.35],
-  milk: [6.15, 0, -4.8], yogurt: [7.5, 0, -4.8], cheese: [6.15, 0, -3.4], butter: [7.5, 0, -3.4], eggs: [6.15, 0, -2.0], chicken: [7.5, 0, -2.0], beef: [6.15, 0, -0.6], deli: [7.5, 0, -0.6],
-  soda: [1.85, 0, -4.8], water: [3.15, 0, -4.8], pizza: [1.85, 0, -3.2], icecream: [3.15, 0, -3.2],
-};
-const GROUP_TARGET = {
-  produce: [-4.3, 0, -3.45], bakery: [-4.35, 0, 0.6], dry: [0.55, 0, -3.0],
-  chilled: [4.65, 0, -2.55], drinks: [2.5, 0, -2.42], frozen: [2.5, 0, -2.42],
-};
-
-// Navigation uses inflated fixture footprints so a shopper has room for their
-// shoulders and shopping basket. The same graph drives shoppers, staff and cats.
-const NAV = { minX: -8.3, maxX: 8.3, minZ: -6.25, maxZ: 6.2, step: 0.3, clearance: 0.34 };
-const NAV_BLOCKERS = [
-  ...[[-7.1,-4.8],[-5.55,-4.8],[-7.1,-3.3],[-5.55,-3.3],[-6.3,-1.8]].map(([x,z])=>({x,z,w:1.28,d:1.08})),
-  { x:-6.3, z:0.45, w:2.67, d:1.14 }, // bakery table
-  { x:-2.0, z:-4.55, w:3.9, d:1.22 }, // dry-goods bay A
-  { x:-2.0, z:-1.35, w:3.9, d:1.22 }, // dry-goods bay B
-  { x:2.5, z:-4.0, w:2.1, d:2.25 }, // drinks / freezer island
-  { x:7.0, z:-2.75, w:2.6, d:4.55 }, // refrigerated wall
-  { x:6.3, z:3.42, w:3.47, d:1.58 }, // checkout counter
-  { x:-8.05, z:1.75, w:0.72, d:0.55 }, // newspaper rack
-  { x:-7.75, z:4.85, w:1.2, d:1.15 }, // receiving nook
-];
+const BRICK_TILE = 2.25;                       // world units a brick texture tile covers
+const STORE_CENTER = [0, 0];
+const MAX_VISIBLE_STOCK = 12;                  // stock per shelf slot is drawn as at most this many units
 
 function normalizeActorHeight(model, targetHeight) {
   const geometry = model.mesh.geometry;
@@ -92,165 +34,10 @@ function normalizeActorHeight(model, targetHeight) {
   return -bounds.min.y * meshScaleY * fit;
 }
 
-function navBlocked(x, z) {
-  if (x < NAV.minX || x > NAV.maxX || z < NAV.minZ || z > NAV.maxZ) return true;
-  const r = NAV.clearance;
-  return NAV_BLOCKERS.some((b) =>
-    x >= b.x - b.w / 2 - r && x <= b.x + b.w / 2 + r &&
-    z >= b.z - b.d / 2 - r && z <= b.z + b.d / 2 + r
-  );
-}
-
-function nearestWalkable(x, z) {
-  const ix = Math.round((x - NAV.minX) / NAV.step);
-  const iz = Math.round((z - NAV.minZ) / NAV.step);
-  for (let radius = 0; radius <= 12; radius++) {
-    for (let dx = -radius; dx <= radius; dx++) for (let dz = -radius; dz <= radius; dz++) {
-      if (Math.max(Math.abs(dx), Math.abs(dz)) !== radius) continue;
-      const gx = NAV.minX + (ix + dx) * NAV.step;
-      const gz = NAV.minZ + (iz + dz) * NAV.step;
-      if (!navBlocked(gx, gz)) return { ix: ix + dx, iz: iz + dz, x: gx, z: gz };
-    }
-  }
-  return { ix, iz, x, z };
-}
-
-function heapPush(heap, item) {
-  let i = heap.length;
-  heap.push(item);
-  while (i > 0) {
-    const parent = (i - 1) >> 1;
-    if (heap[parent].f <= item.f) break;
-    heap[i] = heap[parent]; i = parent;
-  }
-  heap[i] = item;
-}
-
-function heapPop(heap) {
-  const first = heap[0];
-  const last = heap.pop();
-  if (heap.length) {
-    let i = 0;
-    while (true) {
-      let child = i * 2 + 1;
-      if (child >= heap.length) break;
-      if (child + 1 < heap.length && heap[child + 1].f < heap[child].f) child++;
-      if (heap[child].f >= last.f) break;
-      heap[i] = heap[child]; i = child;
-    }
-    heap[i] = last;
-  }
-  return first;
-}
-
-function gridKey(ix, iz) { return `${ix},${iz}`; }
-function gridWorld(ix, iz) { return [NAV.minX + ix * NAV.step, 0, NAV.minZ + iz * NAV.step]; }
-
-function segmentClear(a, b) {
-  const dx = b[0] - a[0], dz = b[2] - a[2];
-  const distance = Math.hypot(dx, dz);
-  const samples = Math.max(2, Math.ceil(distance / 0.16));
-  for (let i = 1; i < samples; i++) {
-    const t = i / samples;
-    if (navBlocked(a[0] + dx * t, a[2] + dz * t)) return false;
-  }
-  return true;
-}
-
-function findWalkPath(start, end) {
-  const source = nearestWalkable(start[0], start[2]);
-  const target = nearestWalkable(end[0], end[2]);
-  const startKey = gridKey(source.ix, source.iz), targetKey = gridKey(target.ix, target.iz);
-  const open = [];
-  const previous = new Map();
-  const score = new Map([[startKey, 0]]);
-  const closed = new Set();
-  const heuristic = (x,z) => Math.hypot(target.ix - x, target.iz - z);
-  heapPush(open, { ix: source.ix, iz: source.iz, key: startKey, g: 0, f: heuristic(source.ix,source.iz) });
-  const directions = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
-  let found = false, iterations = 0;
-  while (open.length && iterations++ < 6000) {
-    const node = heapPop(open);
-    if (closed.has(node.key)) continue;
-    if (node.key === targetKey) { found = true; break; }
-    closed.add(node.key);
-    for (const [dx,dz] of directions) {
-      const ix=node.ix+dx, iz=node.iz+dz, point=gridWorld(ix,iz), key=gridKey(ix,iz);
-      if (closed.has(key) || navBlocked(point[0],point[2])) continue;
-      if (dx && dz && (navBlocked(gridWorld(node.ix+dx,node.iz)[0],gridWorld(node.ix+dx,node.iz)[2]) || navBlocked(gridWorld(node.ix,node.iz+dz)[0],gridWorld(node.ix,node.iz+dz)[2]))) continue;
-      const g = node.g + (dx && dz ? 1.4142 : 1);
-      if (g >= (score.get(key) ?? Infinity)) continue;
-      score.set(key,g); previous.set(key,node.key);
-      heapPush(open,{ix,iz,key,g,f:g+heuristic(ix,iz)});
-    }
-  }
-  if (!found) return [[...start],[...end]];
-  const cells = [];
-  let cursor = targetKey;
-  while (cursor) {
-    const [ix,iz]=cursor.split(',').map(Number);
-    cells.push(gridWorld(ix,iz));
-    if (cursor===startKey) break;
-    cursor=previous.get(cursor);
-  }
-  cells.reverse();
-  const raw = [[start[0],0,start[2]], ...cells, [end[0],0,end[2]]];
-  const deduped = raw.filter((p,i,a)=>i===0||Math.hypot(p[0]-a[i-1][0],p[2]-a[i-1][2])>0.12);
-  const smooth = [deduped[0]];
-  let at=0;
-  while (at<deduped.length-1) {
-    let next=at+1;
-    for(let candidate=deduped.length-1;candidate>at+1;candidate--) {
-      if(segmentClear(deduped[at],deduped[candidate])) { next=candidate; break; }
-    }
-    smooth.push(deduped[next]); at=next;
-  }
-  return smooth;
-}
-
-function planWalkRoute(start, stops) {
-  let current=[start[0],0,start[2]], route=[current];
-  for (const stop of stops) {
-    const segment=findWalkPath(current,stop);
-    route.push(...segment.slice(1));
-    current=route[route.length-1];
-  }
-  return route.length>1?route:[current,[...current]];
-}
-
-function routeLength(route) {
-  let length=0;
-  for(let i=1;i<route.length;i++) length+=Math.hypot(route[i][0]-route[i-1][0],route[i][2]-route[i-1][2]);
-  return length;
-}
-
-function pointOnRoute(route, progress) {
-  if (!route?.length) return [0,0,0];
-  const total=routeLength(route);
-  if (total<1e-5) return [...route[route.length-1]];
-  let remaining=Math.max(0,Math.min(1,progress))*total;
-  for(let i=1;i<route.length;i++) {
-    const a=route[i-1],b=route[i];
-    const length=Math.hypot(b[0]-a[0],b[2]-a[2]);
-    if(remaining<=length||i===route.length-1) {
-      const t=length>1e-5?Math.max(0,Math.min(1,remaining/length)):1;
-      return [a[0]+(b[0]-a[0])*t,0,a[2]+(b[2]-a[2])*t];
-    }
-    remaining-=length;
-  }
-  return [...route[route.length-1]];
-}
-
 function faceAlong(group, from, to) {
-  const dx=to[0]-from[0], dz=to[2]-from[2];
-  if(Math.hypot(dx,dz)>0.02) group.rotation.y=Math.atan2(dx,dz);
+  const dx = to[0] - from[0], dz = to[2] - from[2];
+  if (Math.hypot(dx, dz) > 0.02) group.rotation.y = Math.atan2(dx, dz);
 }
-
-const CAT_PATROLS = [
-  [[-4.25,-5.65],[-4.25,-2.3],[-4.25,1.0],[-4.25,4.8],[0.55,4.8],[0.55,1.7],[0.55,-2.5],[0.55,-5.7]],
-  [[0.55,4.8],[0.55,1.7],[0.55,-2.5],[0.55,-5.7],[2.5,-5.7],[4.65,-5.7],[4.65,-2.5],[4.65,1.7],[4.65,4.8]],
-  [[4.65,4.8],[4.65,1.7],[4.65,-2.5],[4.65,-5.7],[2.5,-5.7],[0.55,-5.7],[0.55,-2.5],[0.55,1.7],[0.55,4.8]],
-];
 
 function makeSignTexture(text, { background = '#14252a', foreground = '#f4e8ce', accent = '#df674b', width = 512, height = 128, fontSize = 60 } = {}) {
   const canvas = document.createElement('canvas');
@@ -266,315 +53,492 @@ function makeSignTexture(text, { background = '#14252a', foreground = '#f4e8ce',
   return texture;
 }
 
-function labelTexture(text, small = false) {
-  return makeSignTexture(text, {
-    background: '#f2e8cf', foreground: '#273238', accent: '#d36c50',
-    width: 256, height: 92, fontSize: small ? 25 : 31,
-  });
-}
+const labelTexture = (text) => makeSignTexture(text, { background: '#f2e8cf', foreground: '#273238', accent: '#d36c50', width: 256, height: 80, fontSize: 30 });
 
-export async function createBodegaWorld(host, onProgress = () => {}) {
-  onProgress('Opening the shop floor', 5);
-  const view = createView({ yaw: 0.03, pitch: 0.77, zoom: 1.0 });
+export async function createBodegaWorld(host, onProgress = () => {}) { // eslint-disable-line no-param-reassign
+  const report = onProgress;
+  let shown = 0;
+  onProgress = (label, percent) => report(label, (shown = Math.max(shown, percent)));   // the bar only ever moves forward
+  onProgress('Opening the shop floor', 3);
+  const params = new URLSearchParams(window.location.search);
+
+  // ——— models are sculpted in workers while the scene is built ———
+  const spawn = () => new Worker(new URL('./bake.worker.js', import.meta.url), { type: 'module' });
+  const library = createBakeLibrary({ sculpted: CAST, spawn, jobs: loadingJobs, label: 'bodega' });
+  const jobs = loadingJobs();
+  let bakedCount = 0;
+  const waits = jobs.map(([name, detail]) => library.ready(name, detail).then(() => {
+    bakedCount += 1;
+    onProgress(`Sculpting the neighborhood · ${bakedCount} of ${jobs.length}`, 8 + (bakedCount / jobs.length) * 60);
+  }));
+  library.preload(jobs);
+
+  const view = createView({ yaw: Number(params.get('yaw') ?? -0.55), pitch: Number(params.get('pitch') ?? 0.72), zoom: 1.0 });
   const stage = await createStage(host, {
     label: 'bodega',
-    lens: { distance: 24, fov: 37 },
+    lens: { distance: 27, fov: 37 },
     view,
     sky: paintSky(),
     room: paintRoom(),
     lights: {
-      hemisphere: { sky: '#e6e7de', ground: '#303039', intensity: 1.08 },
+      hemisphere: { sky: '#e6e7de', ground: '#303039', intensity: 1.1 },
       key: { color: '#ffe1b5', intensity: 2.0 },
       fill: { color: '#c5dbe4', intensity: 0.42, offset: [6, 4, 5] },
     },
     shadows: true,
     shadowSize: 1536,
-    pixelRatio: 1.75,
+    pixelRatio: Number(params.get('pr') ?? Math.min(window.devicePixelRatio || 1, 1.75)),
   });
   const { scene } = stage;
-  onProgress('Building the neighborhood store', 20);
+  onProgress('Building the neighborhood store', 10);
+
+  // ——— materials and building helpers ———
+  const std = (color, extra = {}) => new GFX.MeshStandardMaterial({ color, roughness: 0.8, ...extra });
   const mats = {
-    dark: new GFX.MeshStandardMaterial({ color: '#222d31', roughness: 0.74 }),
-    wood: new GFX.MeshStandardMaterial({ color: '#9b6840', roughness: 0.82 }),
-    woodLight: new GFX.MeshStandardMaterial({ color: '#c18b55', roughness: 0.78 }),
-    trim: new GFX.MeshStandardMaterial({ color: '#d5c5a7', roughness: 0.7 }),
-    metal: new GFX.MeshStandardMaterial({ color: '#67777c', metalness: 0.64, roughness: 0.36 }),
-    steelDark: new GFX.MeshStandardMaterial({ color: '#303d43', metalness: 0.52, roughness: 0.42 }),
-    glass: new GFX.MeshPhysicalMaterial({ color: '#b9d9d8', transparent: true, opacity: 0.25, roughness: 0.12, metalness: 0.12, transmission: 0.45, thickness: 0.15 }),
-    chalk: new GFX.MeshStandardMaterial({ color: '#e7dfc8', roughness: 0.9 }),
-    tomato: new GFX.MeshStandardMaterial({ color: '#d34e3e', roughness: 0.52 }),
-    leaf: new GFX.MeshStandardMaterial({ color: '#648c48', roughness: 0.84 }),
-    yellow: new GFX.MeshStandardMaterial({ color: '#e4c24d', roughness: 0.62 }),
-    crate: new GFX.MeshStandardMaterial({ color: '#9d7048', roughness: 0.95 }),
-    bulb: new GFX.MeshStandardMaterial({ color: '#ffd99b', emissive: '#ffb95e', emissiveIntensity: 1.25, roughness: 0.25 }),
+    dark: std('#222d31', { roughness: 0.74 }),
+    wood: std('#9b6840'),
+    woodLight: std('#c18b55', { roughness: 0.78 }),
+    woodDark: std('#6a4630'),
+    trim: std('#d5c5a7', { roughness: 0.7 }),
+    metal: std('#67777c', { metalness: 0.64, roughness: 0.36 }),
+    steelDark: std('#303d43', { metalness: 0.52, roughness: 0.42 }),
+    glass: new GFX.MeshPhysicalMaterial({ color: '#b9d9d8', transparent: true, opacity: 0.2, roughness: 0.1, metalness: 0.1 }),
+    chalk: std('#e7dfc8', { roughness: 0.9 }),
+    leaf: std('#648c48', { roughness: 0.84 }),
+    concrete: std('#8f948f', { roughness: 0.95 }),
+    sidewalk: std('#a9a79f', { roughness: 0.95 }),
+    asphalt: std('#2d3135', { roughness: 0.97 }),
+    paint: std('#e8e4d6', { roughness: 0.8 }),
+    kraft: std('#b78a56', { roughness: 0.95 }),
+    bulb: std('#ffd99b', { emissive: '#ffb95e', emissiveIntensity: 1.25, roughness: 0.25 }),
+    led: std('#dff4ff', { emissive: '#b8e7f0', emissiveIntensity: 1.6, roughness: 0.3 }),
+    rubber: std('#26292b', { roughness: 0.95 }),
   };
 
-  function box(parent, x, y, z, w, h, d, material, options = {}) {
+  function box(parent, x, y, z, w, h, d, material, { castShadow = true, receiveShadow = true, rotation = null } = {}) {
     const mesh = new GFX.Mesh(new GFX.BoxGeometry(w, h, d), material);
     mesh.position.set(x, y, z);
-    mesh.castShadow = options.castShadow !== false;
-    mesh.receiveShadow = options.receiveShadow !== false;
-    if (options.rotation) mesh.rotation.set(...options.rotation);
+    mesh.castShadow = castShadow;
+    mesh.receiveShadow = receiveShadow;
+    if (rotation) mesh.rotation.set(...rotation);
     parent.add(mesh);
     return mesh;
   }
-
   function cylinder(parent, x, y, z, radiusTop, radiusBottom, height, material, segments = 16) {
     const mesh = new GFX.Mesh(new GFX.CylinderGeometry(radiusTop, radiusBottom, height, segments), material);
     mesh.position.set(x, y, z); mesh.castShadow = true; mesh.receiveShadow = true; parent.add(mesh);
     return mesh;
   }
-
   function sphere(parent, x, y, z, radius, material, scale = [1, 1, 1]) {
     const mesh = new GFX.Mesh(new GFX.SphereGeometry(radius, 16, 12), material);
     mesh.position.set(x, y, z); mesh.scale.set(...scale); mesh.castShadow = true; parent.add(mesh);
     return mesh;
   }
+  function signPlane(parent, text, x, y, z, w, h, style, { rotationY = 0, transparent = false, singleSided = false } = {}) {
+    const material = new GFX.MeshBasicMaterial({ map: makeSignTexture(text, style), side: singleSided ? GFX.FrontSide : GFX.DoubleSide, transparent });
+    const mesh = new GFX.Mesh(new GFX.PlaneGeometry(w, h), material);
+    mesh.position.set(x, y, z); mesh.rotation.y = rotationY;
+    parent.add(mesh);
+    return mesh;
+  }
 
-  // One continuous shop floor, with the engine's painted checker linoleum and bump detail.
+  // Brick that keeps its scale on any size of wall: the UVs follow the box's dimensions.
+  const wallTex = wallTexture(GFX, 'brick');
+  const wallMap = new GFX.CanvasTexture(wallTex.map.image);
+  wallMap.colorSpace = GFX.SRGBColorSpace; wallMap.wrapS = wallMap.wrapT = GFX.RepeatWrapping;
+  const wallBump = new GFX.CanvasTexture(wallTex.bump.image);
+  wallBump.wrapS = wallBump.wrapT = GFX.RepeatWrapping;
+  function scaleBrickUV(geometry, w, h, d) {
+    const uv = geometry.attributes.uv;
+    if (!uv) return;
+    const faces = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];   // +x −x +y −y +z −z
+    for (let i = 0; i < uv.count; i++) {
+      const [fw, fh] = faces[Math.min(5, Math.floor(i / 4))];
+      uv.setXY(i, uv.getX(i) * fw / BRICK_TILE, uv.getY(i) * fh / BRICK_TILE);
+    }
+    uv.needsUpdate = true;
+  }
+
+  /**
+   * A wall that can fade: a group with materials of its own, so one wall can go to a
+   * ghost while the next stays solid. `normal` is its outward direction; `both` is a
+   * partition, which hides the shop from either side.
+   */
+  const wallGroups = [];
+  function wall(name, { normal, both = false }) {
+    const group = new GFX.Group();
+    scene.add(group);
+    const w = { name, normal, both, group, opacity: 1, applied: 1, mats: new Map(), meshes: [] };
+    const material = (key, make) => {
+      if (!w.mats.has(key)) { const m = make(); m.transparent = true; m.baseOpacity = m.opacity ?? 1; w.mats.set(key, m); }
+      return w.mats.get(key);
+    };
+    w.brick = (x, y, z, bw, bh, bd, tint = '#a8a092') => {
+      const m = material(`brick${tint}`, () => new GFX.MeshStandardMaterial({ color: tint, map: wallMap, bumpMap: wallBump, bumpScale: 0.09, roughness: 0.9 }));
+      const mesh = new GFX.Mesh(new GFX.BoxGeometry(bw, bh, bd), m);
+      scaleBrickUV(mesh.geometry, bw, bh, bd);
+      mesh.position.set(x, y, z); mesh.castShadow = true; mesh.receiveShadow = true;
+      group.add(mesh); w.meshes.push(mesh);
+      return mesh;
+    };
+    w.box = (x, y, z, bw, bh, bd, key, make, opts = {}) => {
+      const mesh = box(group, x, y, z, bw, bh, bd, material(key, make), opts);
+      w.meshes.push(mesh);
+      return mesh;
+    };
+    w.glass = (x, y, z, bw, bh, bd) => w.box(x, y, z, bw, bh, bd, 'glass', () => new GFX.MeshPhysicalMaterial({ color: '#9fd0dc', transparent: true, opacity: 0.22, roughness: 0.08, metalness: 0.1 }), { castShadow: false });
+    w.frame = (x, y, z, bw, bh, bd, color = '#2b3538') => w.box(x, y, z, bw, bh, bd, `frame${color}`, () => std(color, { roughness: 0.5, metalness: 0.3 }));
+    w.wood = (x, y, z, bw, bh, bd) => w.box(x, y, z, bw, bh, bd, 'wood', () => std('#c18b55', { roughness: 0.78 }));
+    w.plane = (text, x, y, z, pw, ph, style, rotationY = 0) => {
+      const m = material(`sign${text}`, () => new GFX.MeshBasicMaterial({ map: makeSignTexture(text, style), side: GFX.DoubleSide }));
+      const mesh = new GFX.Mesh(new GFX.PlaneGeometry(pw, ph), m);
+      mesh.position.set(x, y, z); mesh.rotation.y = rotationY;
+      group.add(mesh); w.meshes.push(mesh);
+      return mesh;
+    };
+    w.material = material;
+    wallGroups.push(w);
+    return w;
+  }
+
+  /** A window set into a wall's face: light glass inside a frame of bars and a mullion. `axis` is the way the wall runs. */
+  function fakeWindow(wl, { cx, cy, cz, w: ww, h: hh, axis }) {
+    const bar = 0.07, depth = 0.07;
+    const along = (len, thick) => (axis === 'x' ? [len, thick, depth] : [depth, thick, len]);
+    const at = (off) => (axis === 'x' ? [cx + off, cz] : [cx, cz + off]);
+    wl.box(cx, cy, cz, ...(axis === 'x' ? [ww, hh, 0.04] : [0.04, hh, ww]), 'window-glass', () => new GFX.MeshPhysicalMaterial({ color: '#9fd0e0', transparent: true, opacity: 0.6, roughness: 0.1 }), { castShadow: false });
+    for (const sy of [-1, 1]) { const [x, z] = at(0); wl.frame(x, cy + sy * hh / 2, z, ...along(ww + bar, bar)); }
+    for (const sx of [-1, 1]) { const [x, z] = at(sx * ww / 2); wl.frame(x, cy, z, ...(axis === 'x' ? [bar, hh, depth] : [depth, hh, bar])); }
+    const [mx, mz] = at(0);
+    wl.frame(mx, cy, mz, ...(axis === 'x' ? [0.04, hh, depth] : [depth, hh, 0.04]));
+  }
+
+  // ——— the ground: street, sidewalk, alley ———
+  box(scene, 0, -0.55, 0, 140, 0.4, 140, mats.asphalt, { castShadow: false });
+  box(scene, 0, -0.15, 8.675, 60, 0.3, SIDEWALK.maxZ - SIDEWALK.minZ + 0.3, mats.sidewalk, { castShadow: false });      // the sidewalk
+  box(scene, 0, -0.1, 10.45, 60, 0.4, 0.3, mats.concrete, { castShadow: false });                                      // the curb
+  box(scene, 0, -0.145, -11, 60, 0.3, 8.2, mats.sidewalk, { castShadow: false });                                       // the alley behind
+  for (let x = -27; x <= 27; x += 4.5) box(scene, x, -0.345, 14, 2.2, 0.02, 0.2, mats.paint, { castShadow: false, receiveShadow: false });
+
+  // ——— the floor ———
   const floorTex = floorTexture(GFX, 'checker');
   const floorMap = new GFX.CanvasTexture(floorTex.map.image);
   floorMap.colorSpace = GFX.SRGBColorSpace; floorMap.wrapS = floorMap.wrapT = GFX.RepeatWrapping; floorMap.repeat.set(9, 7);
   const floorBump = new GFX.CanvasTexture(floorTex.bump.image);
   floorBump.wrapS = floorBump.wrapT = GFX.RepeatWrapping; floorBump.repeat.set(9, 7);
-  const floorMaterial = new GFX.MeshStandardMaterial({ color: '#b8b0a0', map: floorMap, bumpMap: floorBump, bumpScale: 0.08, roughness: 0.82 });
-  box(scene, 0, -0.16, 0, 18, 0.3, 14, floorMaterial, { receiveShadow: true });
+  box(scene, 0, -0.16, 0, 18.3, 0.3, 14.3, new GFX.MeshStandardMaterial({ color: '#b8b0a0', map: floorMap, bumpMap: floorBump, bumpScale: 0.08, roughness: 0.82 }), { castShadow: false });
+  const br = BACKROOM;
+  box(scene, (br.minX + br.maxX) / 2, 0.006, (br.minZ + br.maxZ) / 2, br.maxX - br.minX, 0.014, br.maxZ - br.minZ, mats.concrete, { castShadow: false });   // the backroom's concrete
+  box(scene, FRONT_DOOR.x, 0.01, 6.2, 1.6, 0.02, 0.9, mats.rubber, { castShadow: false });                                                                 // the doormat
+  box(scene, REAR_DOOR.x, 0.01, -6.3, 1.4, 0.02, 0.8, mats.rubber, { castShadow: false });
 
-  // The bodega's brick shell: open roof so the whole shop reads in the three-quarter view.
-  const wallTex = wallTexture(GFX, 'brick');
-  const wallMap = new GFX.CanvasTexture(wallTex.map.image);
-  wallMap.colorSpace = GFX.SRGBColorSpace; wallMap.wrapS = wallMap.wrapT = GFX.RepeatWrapping; wallMap.repeat.set(8, 2);
-  const wallBump = new GFX.CanvasTexture(wallTex.bump.image);
-  wallBump.wrapS = wallBump.wrapT = GFX.RepeatWrapping; wallBump.repeat.set(8, 2);
-  const wallMaterial = new GFX.MeshStandardMaterial({ color: '#a8a092', map: wallMap, bumpMap: wallBump, bumpScale: 0.09, roughness: 0.9 });
-  box(scene, 0, 2.25, -7, 18, 4.5, 0.32, wallMaterial);
-  box(scene, -8.85, 2.25, 0, 0.3, 4.5, 14, wallMaterial);
-  box(scene, 8.85, 2.25, 0, 0.3, 4.5, 14, wallMaterial);
-  // Half-height storefront wall and trim, broken at the entry.
-  box(scene, -3.95, 0.56, 6.87, 10.1, 1.12, 0.3, mats.dark);
-  box(scene, 7.95, 0.56, 6.87, 1.7, 1.12, 0.3, mats.dark);
-  box(scene, -8.25, 0.56, 6.87, 1.5, 1.12, 0.3, mats.dark);
-  box(scene, -6.25, 1.08, 6.87, 0.16, 2.16, 0.2, mats.woodLight);
-  box(scene, -4.2, 1.08, 6.87, 0.16, 2.16, 0.2, mats.woodLight);
-  const windowMat = new GFX.MeshPhysicalMaterial({ color: '#83b9c1', transparent: true, opacity: 0.23, roughness: 0.08, metalness: 0.12, transmission: 0.35, thickness: 0.18 });
-  box(scene, -0.5, 1.14, 6.69, 5.7, 1.04, 0.045, windowMat, { castShadow: false });
-  box(scene, -0.5, 0.61, 6.67, 5.9, 0.08, 0.08, mats.woodLight);
-  box(scene, -0.5, 1.67, 6.67, 5.9, 0.08, 0.08, mats.woodLight);
+  // ——— the shell: four outer walls with a street door, big windows, a rear door ———
+  const H = SHELL.height, W = SHELL.maxX, Z = SHELL.maxZ, T = SHELL.wall;
+  const dl = FRONT_DOOR.x - FRONT_DOOR.width / 2, dr = FRONT_DOOR.x + FRONT_DOOR.width / 2;
 
-  // Hand-painted main sign and the little neon OPEN panel.
-  const mainSign = new GFX.Mesh(new GFX.PlaneGeometry(7.1, 1.5), new GFX.MeshBasicMaterial({ map: makeSignTexture('BODEGA', { background: '#1d2c2f', foreground: '#f6e8ca', accent: '#e07355', fontSize: 92 }), side: GFX.DoubleSide }));
-  mainSign.position.set(0, 3.8, -6.78); scene.add(mainSign);
-  box(scene, -3.58, 3.8, -6.73, 0.12, 1.58, 0.13, mats.woodLight);
-  box(scene, 3.58, 3.8, -6.73, 0.12, 1.58, 0.13, mats.woodLight);
-  box(scene, 0, 4.58, -6.73, 7.25, 0.12, 0.13, mats.woodLight);
-  const openSign = new GFX.Mesh(new GFX.PlaneGeometry(1.25, 0.48), new GFX.MeshBasicMaterial({ map: makeSignTexture('OPEN', { background: '#285542', foreground: '#eff1d6', accent: '#8fc27e', fontSize: 56, width: 256, height: 96 }), side: GFX.DoubleSide }));
-  openSign.position.set(7.9, 3.45, -6.76); scene.add(openSign);
+  // Always visible, so the footprint reads even when the walls are ghosts: a low brick plinth round the building.
+  const plinth = new GFX.Group(); scene.add(plinth);
+  const plinthMat = new GFX.MeshStandardMaterial({ color: '#8f8576', map: wallMap, bumpMap: wallBump, bumpScale: 0.09, roughness: 0.9 });
+  const plinthBox = (x, z, bw, bd) => { const mesh = new GFX.Mesh(new GFX.BoxGeometry(bw, 0.34, bd), plinthMat); scaleBrickUV(mesh.geometry, bw, 0.34, bd); mesh.position.set(x, 0.17, z); mesh.castShadow = true; mesh.receiveShadow = true; plinth.add(mesh); };
+  plinthBox(0, -(Z + T / 2 - 0.15), W * 2 + T * 2, T);
+  plinthBox(-(W + T / 2 - 0.15), 0, T, Z * 2);
+  plinthBox(W + T / 2 - 0.15, 0, T, Z * 2);
+  plinthBox((-W - 0.3 + dl) / 2, Z + T / 2 - 0.15, dl + W + 0.3, T);
+  plinthBox((dr + W + 0.3) / 2, Z + T / 2 - 0.15, W + 0.3 - dr, T);
 
-  // Corner-store details: window ledge, milk crate, wall clock, poster rail, framed specials.
-  box(scene, -6.9, 1.42, 5.55, 2.7, 0.13, 0.55, mats.wood);
-  box(scene, -6.9, 2.75, -6.77, 1.0, 0.02, 0.04, mats.woodLight);
-  const clockFace = cylinder(scene, -7.35, 3.32, -6.76, 0.38, 0.38, 0.08, mats.chalk, 32);
-  clockFace.rotation.x = Math.PI / 2;
-  const posterMat = new GFX.MeshBasicMaterial({ map: makeSignTexture('HOT COFFEE · COLD SODA', { background: '#9a4737', foreground: '#f7e6c5', accent: '#e5bf67', fontSize: 29, width: 512, height: 128 }), side: GFX.DoubleSide });
-  const poster = new GFX.Mesh(new GFX.PlaneGeometry(2.7, 0.68), posterMat); poster.position.set(-3.5, 2.55, -6.77); scene.add(poster);
+  // Front: a storefront. Brick bulkhead, piers, a header with the sign, glass between, a glass door.
+  const front = wall('front', { normal: [0, 1] });
+  const fz = Z + T / 2 - 0.15;
+  const windowBottom = 0.95, windowTop = 3.15;
+  const spanL = [[-W - T, -8.4], [-4.3, -3.9], [1.2, dl]];            // piers either side of the left windows
+  const panes = [[-8.4, -4.3], [-3.9, 1.2], [3.6, 8.4]];              // the three display windows
+  front.brick((-W - T + dl) / 2, windowBottom / 2, fz, dl + W + T, windowBottom, T);          // left bulkhead
+  front.brick((dr + W + T) / 2, windowBottom / 2, fz, W + T - dr, windowBottom, T);            // right bulkhead
+  for (const [a, b] of spanL) front.brick((a + b) / 2, (windowBottom + windowTop) / 2, fz, b - a, windowTop - windowBottom, T);
+  front.brick((dr + 3.6) / 2, (windowBottom + windowTop) / 2, fz, 3.6 - dr, windowTop - windowBottom, T);   // pier by the door
+  front.brick((8.4 + W + T) / 2, (windowBottom + windowTop) / 2, fz, W + T - 8.4, windowTop - windowBottom, T);
+  front.brick(0, (windowTop + H) / 2, fz, W * 2 + T * 2, H - windowTop, T);                   // the header, all along
+  for (const [a, b] of panes) {
+    const cx = (a + b) / 2, bw = b - a, ch = (windowBottom + windowTop) / 2;
+    front.glass(cx, ch, fz, bw, windowTop - windowBottom, 0.05);
+    front.frame(cx, windowBottom + 0.03, fz + 0.04, bw + 0.1, 0.08, 0.14);
+    front.frame(cx, windowTop - 0.03, fz + 0.04, bw + 0.1, 0.08, 0.14);
+    front.frame(a, ch, fz + 0.04, 0.07, windowTop - windowBottom, 0.14);
+    front.frame(b, ch, fz + 0.04, 0.07, windowTop - windowBottom, 0.14);
+    front.frame(cx, ch, fz + 0.04, 0.05, windowTop - windowBottom, 0.1);
+  }
+  // The doorway: a frame, a glass transom, and the door leaf, hinged at its right edge so it swings out.
+  front.frame(dl, 1.6, fz + 0.03, 0.1, 3.2, 0.2);
+  front.frame(dr, 1.6, fz + 0.03, 0.1, 3.2, 0.2);
+  front.frame(FRONT_DOOR.x, 2.45, fz + 0.03, FRONT_DOOR.width + 0.1, 0.1, 0.2);
+  front.glass(FRONT_DOOR.x, 2.8, fz, FRONT_DOOR.width, 0.7, 0.05);
+  const doorLeaf = new GFX.Group();
+  doorLeaf.position.set(dr - 0.04, 0, fz + 0.04);
+  front.group.add(doorLeaf);
+  const leafW = FRONT_DOOR.width - 0.1;
+  const leafPart = (x, y, bw, bh, bd, key, make, opts) => { const mesh = box(doorLeaf, x, y, 0, bw, bh, bd, front.material(key, make), opts); front.meshes.push(mesh); return mesh; };
+  leafPart(-leafW / 2, 1.2, leafW - 0.2, 2.2, 0.04, 'glass', () => new GFX.MeshPhysicalMaterial({ color: '#9fd0dc', transparent: true, opacity: 0.22, roughness: 0.08 }), { castShadow: false });
+  leafPart(-0.04, 1.2, 0.1, 2.4, 0.07, 'frame#2b3538', () => std('#2b3538', { roughness: 0.5, metalness: 0.3 }));
+  leafPart(-leafW + 0.04, 1.2, 0.1, 2.4, 0.07, 'frame#2b3538', () => std('#2b3538'));
+  leafPart(-leafW / 2, 2.38, leafW, 0.1, 0.07, 'frame#2b3538', () => std('#2b3538'));
+  leafPart(-leafW / 2, 0.14, leafW, 0.28, 0.07, 'frame#2b3538', () => std('#2b3538'));
+  leafPart(-leafW + 0.22, 1.05, 0.05, 0.5, 0.1, 'metal', () => std('#c9ced1', { metalness: 0.8, roughness: 0.3 }));       // the push bar
+  // The awning over the windows, and the sign above it.
+  for (let i = 0; i < 18; i++) {
+    const stripe = front.box(-W + 0.5 + i * ((W * 2 - 1) / 17), 3.55, Z + 0.95, (W * 2 - 1) / 17 + 0.01, 0.06, 2.1, i % 2 ? 'awnA' : 'awnB', () => std(i % 2 ? '#e9e3d0' : '#2f6b57', { roughness: 0.9 }), { rotation: [0.36, 0, 0] });
+    stripe.castShadow = true;
+  }
+  front.plane('BODEGA', 0, 4.0, Z + 0.17, 7.4, 0.8, { background: '#1d2c2f', foreground: '#f6e8ca', accent: '#e07355', fontSize: 70, width: 1024, height: 112 });
 
-  // Ceiling beams and warm pendants. Each point light is deliberately modest for browser performance.
-  for (const x of [-5.8, -1.8, 2.2, 6.2]) {
-    box(scene, x, 4.25, -0.15, 0.12, 0.12, 13.5, mats.wood);
-    box(scene, x, 3.82, -0.2, 0.06, 0.74, 0.06, mats.metal, { castShadow: false });
-    sphere(scene, x, 3.42, -0.2, 0.17, mats.bulb, [1, 0.72, 1]);
-    const light = new GFX.PointLight('#ffd5a0', 15, 8, 1.5);
-    light.position.set(x, 3.38, -0.2); scene.add(light);
+  // Back: solid brick with the delivery door and two high windows.
+  const back = wall('back', { normal: [0, -1] });
+  const bz = -(Z + T / 2 - 0.15);
+  const rl = REAR_DOOR.x - REAR_DOOR.width / 2, rr = REAR_DOOR.x + REAR_DOOR.width / 2;
+  back.brick((-W - T + rl) / 2, H / 2, bz, rl + W + T, H, T);
+  back.brick((rr + W + T) / 2, H / 2, bz, W + T - rr, H, T);
+  back.brick(REAR_DOOR.x, (2.4 + H) / 2, bz, REAR_DOOR.width, H - 2.4, T);
+  back.box(REAR_DOOR.x, 1.2, bz + 0.05, REAR_DOOR.width - 0.06, 2.4, 0.08, 'rear', () => std('#44545a', { metalness: 0.6, roughness: 0.45 }));
+  back.box(REAR_DOOR.x + 0.45, 1.1, bz + 0.12, 0.08, 0.3, 0.06, 'handle', () => std('#c9ced1', { metalness: 0.8, roughness: 0.3 }));
+  for (const x of [1.5, 6.2]) fakeWindow(back, { cx: x, cy: 3.1, cz: bz + 0.18, w: 1.8, h: 0.9, axis: 'x' });
+  back.plane('RECEIVING · DELIVERIES', REAR_DOOR.x, 3.2, bz - 0.17, 2.6, 0.4, { background: '#3d5148', foreground: '#f4e9d1', accent: '#d6b578', fontSize: 40, width: 640, height: 100 }, Math.PI);
+
+  // Left and right: brick with tall windows.
+  const left = wall('left', { normal: [-1, 0] });
+  const right = wall('right', { normal: [1, 0] });
+  for (const [w, sx] of [[left, -1], [right, 1]]) {
+    const wx = sx * (W + T / 2 - 0.15);
+    w.brick(wx, H / 2, 0, T, H, Z * 2 + T);
+    const windows = sx < 0 ? [1.4, 4.4] : [-3.4, -0.6];
+    for (const z of windows) fakeWindow(w, { cx: wx - sx * 0.17, cy: 2.2, cz: z, w: 1.7, h: 1.5, axis: 'z' });
+  }
+  left.plane('FRESH PRODUCE', -W + 0.2, 3.35, 2.45, 3.6, 0.5, { background: '#35533c', foreground: '#f6edcf', accent: '#c8d19a', fontSize: 52, width: 768, height: 104 }, Math.PI / 2);
+  right.plane('NEXT PLEASE', W - 0.2, 3.3, COUNTER.z, 2.6, 0.5, { background: '#354b47', foreground: '#f0e7cf', accent: '#d9a55f', fontSize: 52, width: 768, height: 104 }, -Math.PI / 2);
+
+  // The backroom's own walls, shorter than the shell: they hide the room from either side, so they fade from both.
+  const partitionH = 3.0;
+  const partNS = wall('backroom-east', { normal: [1, 0], both: true });
+  partNS.brick(br.maxX, partitionH / 2, (br.minZ + br.maxZ) / 2, T, partitionH, br.maxZ - br.minZ + T, '#b9b2a2');
+  partNS.plane('STOCKROOM', br.maxX + 0.17, 2.3, -4.3, 1.8, 0.36, { background: '#3d5148', foreground: '#f4e9d1', accent: '#d6b578', fontSize: 40, width: 576, height: 92 }, Math.PI / 2);
+  const partEW = wall('backroom-south', { normal: [0, 1], both: true });
+  const gapL = br.doorX - br.doorWidth / 2, gapR = br.doorX + br.doorWidth / 2;
+  partEW.brick((br.minX - T + gapL) / 2, partitionH / 2, br.maxZ, gapL - br.minX + T, partitionH, T, '#b9b2a2');
+  partEW.brick((gapR + br.maxX + T / 2) / 2, partitionH / 2, br.maxZ, br.maxX + T / 2 - gapR, partitionH, T, '#b9b2a2');
+  partEW.brick(br.doorX, (2.3 + partitionH) / 2, br.maxZ, br.doorWidth, partitionH - 2.3, T, '#b9b2a2');
+  partEW.frame(gapL, 1.15, br.maxZ, 0.08, 2.3, 0.4);
+  partEW.frame(gapR, 1.15, br.maxZ, 0.08, 2.3, 0.4);
+
+  // The buildings either side.
+  const leftNeighbor = wall('neighbor-left', { normal: [-1, 0] });
+  const rightNeighbor = wall('neighbor-right', { normal: [1, 0] });
+  for (const [w, sx, tint] of [[leftNeighbor, -1, '#8a7a72'], [rightNeighbor, 1, '#9a8f7e']]) {
+    const nx = sx * (W + T + 4.2);
+    w.brick(nx, 3.4, 0, 8.4, 6.8, Z * 2 + 0.3, tint);
+    for (const dx of [-2.6, 0, 2.6]) for (const y of [2.4, 4.9]) fakeWindow(w, { cx: nx + dx, cy: y, cz: Z + 0.18, w: 1.3, h: 1.3, axis: 'x' });
   }
 
-  // Produce market: individual timber bins, hand-marked headers and a low display table.
-  function produceCrate(productId) {
-    const [x, , z] = DISPLAY[productId];
-    const group = new GFX.Group(); group.position.set(x, 0, z); scene.add(group);
-    box(group, 0, 0.16, 0, 1.28, 0.22, 1.08, mats.wood);
-    for (const side of [-0.5, 0.5]) box(group, 0, 0.35, side, 1.28, 0.18, 0.08, mats.woodLight);
-    for (const side of [-0.6, 0.6]) box(group, side, 0.35, 0, 0.08, 0.18, 1.08, mats.woodLight);
-    return group;
+  // ——— lights ———
+  for (const [x, z] of [[-4, 3], [3, 3], [-1.6, -3.2], [4, -3.5]]) {
+    const light = new GFX.PointLight('#ffd5a0', 12, 9, 1.5);
+    light.position.set(x, 3.4, z); scene.add(light);
   }
-  ['apples', 'bananas', 'tomatoes', 'lettuce', 'potatoes'].forEach(produceCrate);
-  box(scene, -6.3, 0.72, -5.65, 4.15, 0.18, 0.18, mats.dark);
-  const produceLabel = new GFX.Mesh(new GFX.PlaneGeometry(3.3, 0.36), new GFX.MeshBasicMaterial({ map: makeSignTexture('FRESH PRODUCE', { background: '#35533c', foreground: '#f6edcf', accent: '#c8d19a', fontSize: 48, height: 96 }), side: GFX.DoubleSide }));
-  produceLabel.position.set(-6.3, 0.75, -5.53); scene.add(produceLabel);
+  { const light = new GFX.PointLight('#ffe6b8', 8, 6, 1.6); light.position.set(-6.7, 2.6, -4.5); scene.add(light); }
 
-  // Bakery table and bread baskets.
-  box(scene, -6.3, 0.46, 0.45, 2.55, 0.72, 1.05, mats.wood);
-  box(scene, -6.3, 0.85, 0.45, 2.67, 0.12, 1.14, mats.woodLight);
-  box(scene, -6.3, 1.19, -0.1, 2.4, 0.07, 0.07, mats.dark);
-  const bakeryLabel = new GFX.Mesh(new GFX.PlaneGeometry(1.65, 0.38), new GFX.MeshBasicMaterial({ map: makeSignTexture('BAKERY', { background: '#875a38', foreground: '#fff0d2', accent: '#e1b276', fontSize: 48, height: 96 }), side: GFX.DoubleSide }));
-  bakeryLabel.position.set(-6.3, 1.23, -0.05); scene.add(bakeryLabel);
+  // ——— the street out front ———
+  const lamp = (x, z) => {
+    cylinder(scene, x, 2.0, z, 0.06, 0.09, 4.0, mats.steelDark, 10);
+    box(scene, x, 4.0, z + 0.4, 0.12, 0.1, 0.9, mats.steelDark);
+    box(scene, x, 3.92, z + 0.75, 0.35, 0.08, 0.2, mats.bulb, { castShadow: false });
+  };
+  lamp(-3.4, 9.9); lamp(7.6, 9.9);
+  for (const x of [dl - 0.55, dr + 0.55]) {                                     // planters flanking the door
+    box(scene, x, 0.3, Z + 0.7, 0.8, 0.6, 0.6, mats.woodDark);
+    sphere(scene, x, 0.75, Z + 0.7, 0.4, mats.leaf, [1, 0.8, 0.9]);
+  }
+  cylinder(scene, 6.4, 0.38, 9.7, 0.14, 0.17, 0.76, std('#b8352b', { roughness: 0.5 }), 12);
+  sphere(scene, 6.4, 0.82, 9.7, 0.15, std('#b8352b', { roughness: 0.5 }));
+  cylinder(scene, -7.6, 0.45, 9.2, 0.3, 0.26, 0.9, mats.steelDark, 14);
+  box(scene, -7.6, 0.92, 9.2, 0.66, 0.06, 0.66, mats.metal);
+  box(scene, 9.2, 0.55, -9.2, 2.6, 1.1, 1.3, std('#3d5a47', { roughness: 0.7 }));                      // the dumpster in the alley
 
-  // Dry-goods gondolas: real shelf boards, dark uprights, price rails and kick plates.
-  function gondola(x, z, width = 5.25) {
-    box(scene, x, 0.16, z, width, 0.22, 1.22, mats.dark);
-    box(scene, x, 0.58, z - 0.34, width, 0.1, 0.62, mats.woodLight);
-    box(scene, x, 1.22, z - 0.34, width, 0.1, 0.62, mats.woodLight);
-    box(scene, x, 1.86, z - 0.34, width, 0.1, 0.62, mats.woodLight);
-    for (const end of [-1, 1]) {
-      box(scene, x + end * (width / 2 - 0.08), 1.03, z - 0.34, 0.12, 2.0, 0.15, mats.metal);
-      box(scene, x + end * (width / 2 - 0.08), 0.12, z, 0.12, 0.24, 1.2, mats.metal);
+  // ——— shelving and fixtures ———
+  onProgress('Setting up shelves and the checkout', 70);
+  const shelfLabels = new Map();
+  function gondola() {
+    const { x, z, length, depth, height } = GONDOLA;
+    box(scene, x, 0.16, z, length, 0.22, depth + 0.1, mats.dark);
+    for (const sx of [-1, 1]) box(scene, x + sx * (length / 2 - 0.05), height / 2, z, 0.1, height, depth, mats.metal);
+    box(scene, x, height / 2, z, length - 0.2, height - 0.1, 0.08, mats.steelDark);
+    for (const level of LEVELS) for (const s of [-1, 1]) box(scene, x, level - 0.03, z + s * 0.28, length - 0.12, 0.05, 0.52, mats.woodLight);
+    box(scene, x, height + 0.04, z, length + 0.1, 0.1, depth + 0.1, mats.dark);
+    for (const s of [-1, 1]) signPlane(scene, s > 0 ? 'PANTRY · RICE · PASTA · CEREAL' : 'BEANS · COFFEE', x, height + 0.38, z + s * 0.56, 3.4, 0.46, { background: '#33464c', foreground: '#f4e9d1', accent: '#d16f53', fontSize: 34, width: 768, height: 96 }, { rotationY: s > 0 ? 0 : Math.PI, singleSided: true });
+  }
+  function coolers() {
+    const { zBack, depth, height, sections } = COOLERS;
+    const x0 = sections[0].x0, x1 = sections.at(-1).x1;
+    box(scene, (x0 + x1) / 2, 0.15, zBack + depth / 2, x1 - x0, 0.3, depth, mats.steelDark);                      // compressor plinth
+    box(scene, (x0 + x1) / 2, height / 2 + 0.15, zBack + 0.04, x1 - x0, height, 0.08, std('#cfd8d8', { roughness: 0.5 }));
+    box(scene, (x0 + x1) / 2, height + 0.2, zBack + depth / 2, x1 - x0 + 0.1, 0.16, depth + 0.06, mats.steelDark);   // the canopy
+    box(scene, (x0 + x1) / 2, height + 0.05, zBack + depth - 0.06, x1 - x0, 0.05, 0.05, mats.led, { castShadow: false });
+    for (const sec of sections) {
+      const cx = (sec.x0 + sec.x1) / 2, sw = sec.x1 - sec.x0;
+      for (const level of COOLER_LEVELS) box(scene, cx, level - 0.03, zBack + 0.5, sw - 0.06, 0.05, 0.84, mats.metal);
+      box(scene, cx, height / 2 + 0.15, zBack + depth - 0.02, sw - 0.04, height - 0.1, 0.04, mats.glass, { castShadow: false });
+      for (const edge of [sec.x0, sec.x1]) box(scene, edge, height / 2 + 0.15, zBack + depth - 0.02, 0.08, height, 0.1, mats.metal);
+      box(scene, cx, height / 2 + 0.15, zBack + depth - 0.01, 0.05, height - 0.1, 0.07, mats.metal);
+      signPlane(scene, sec.label, cx, height + 0.2, zBack + depth + 0.04, Math.min(3, sw - 0.3), 0.3, { background: '#38545a', foreground: '#eef3e5', accent: '#b3d9d2', fontSize: 38, width: 768, height: 80 });
     }
-    for (const y of [0.38, 1.02, 1.66]) box(scene, x, y, z - 0.01, width, 0.09, 0.06, mats.trim);
   }
-  gondola(-2.0, -4.55, 3.9);
-  gondola(-2.0, -1.35, 3.9);
-  const groceryHeader = new GFX.Mesh(new GFX.PlaneGeometry(3.3, 0.48), new GFX.MeshBasicMaterial({ map: makeSignTexture('PANTRY & DRY GOODS', { background: '#33464c', foreground: '#f4e9d1', accent: '#d16f53', fontSize: 40, height: 96 }), side: GFX.DoubleSide }));
-  groceryHeader.position.set(-2.0, 2.22, -2.05); scene.add(groceryHeader);
-
-  // Refrigerated wall: compressor plinth, glass doors, aluminium dividers and chilled shelves.
-  box(scene, 7.0, 0.16, -2.75, 2.6, 0.3, 4.55, mats.steelDark);
-  box(scene, 7.0, 2.22, -4.93, 2.6, 0.22, 0.16, mats.metal);
-  box(scene, 7.0, 1.14, -0.54, 2.6, 0.2, 0.16, mats.metal);
-  box(scene, 7.0, 1.21, -2.76, 2.5, 1.9, 0.08, mats.glass, { castShadow: false });
-  for (const x of [5.76, 7.0, 8.24]) box(scene, x, 1.23, -2.76, 0.065, 2.0, 0.12, mats.metal);
-  for (const z of [-4.15, -2.72, -1.28]) box(scene, 7.0, 0.78, z, 2.52, 0.075, 0.08, mats.trim);
-  for (const x of [5.95, 6.65, 7.35, 8.05]) {
-    const lamp = new GFX.PointLight('#b8e7f0', 5.5, 3.8, 1.6); lamp.position.set(x, 2.1, -2.7); scene.add(lamp);
+  function produceBins() {
+    PRODUCE_Z.forEach((z) => {
+      const group = new GFX.Group(); group.position.set(PRODUCE_X, 0, z); scene.add(group);
+      box(group, 0, 0.18, 0, 1.3, 0.36, 1.3, mats.wood);
+      box(group, 0.62, 0.42, 0, 0.08, 0.3, 1.3, mats.woodLight);                       // the low lip on the aisle side
+      box(group, -0.6, 0.55, 0, 0.1, 0.9, 1.3, mats.woodLight);                       // the tilted back
+      box(group, -0.04, 0.4, 0, 1.12, 0.04, 1.14, mats.woodDark);
+    });
   }
-  const coldLabel = new GFX.Mesh(new GFX.PlaneGeometry(3.3, 0.42), new GFX.MeshBasicMaterial({ map: makeSignTexture('MILK · EGGS · MEAT', { background: '#38545a', foreground: '#eef3e5', accent: '#b3d9d2', fontSize: 35, height: 96 }), side: GFX.DoubleSide }));
-  coldLabel.position.set(7.0, 2.45, -4.82); scene.add(coldLabel);
+  function bakery() {
+    const { x, z, w, d, top } = BAKERY;
+    box(scene, x, top / 2, z, w, top - 0.1, d, mats.wood);
+    box(scene, x, top - 0.05, z, w + 0.1, 0.1, d + 0.1, mats.woodLight);
+    signPlane(scene, 'BAKERY', x, top + 0.42, z - 0.3, 1.3, 0.36, { background: '#875a38', foreground: '#fff0d2', accent: '#e1b276', fontSize: 52, width: 512, height: 96 });
+    box(scene, x, top + 0.18, z - 0.3, 0.05, 0.4, 0.05, mats.dark);
+  }
+  function checkout() {
+    const { x, z, w, d, top } = COUNTER;
+    box(scene, x, top / 2 - 0.05, z, w, top - 0.1, d, mats.wood);                                   // the body
+    box(scene, x, top - 0.02, z, w + 0.14, 0.1, d + 0.14, mats.dark);                                // the top
+    box(scene, x - 0.3, top + 0.035, z, 0.16, 0.04, d - 0.3, mats.rubber);                          // the belt
+    box(scene, x + 0.2, top + 0.035, z, 0.4, 0.02, d - 0.2, mats.trim);
+    box(scene, x - w / 2 - 0.04, top / 2 - 0.05, z, 0.06, top - 0.3, d - 0.2, mats.woodDark);       // toe-kick panel facing the queue
+    // The register, its screen and the card reader, at the cashier's end.
+    box(scene, x + 0.25, top + 0.17, z + 0.2, 0.55, 0.26, 0.5, mats.steelDark);
+    box(scene, x + 0.25, top + 0.42, z + 0.2, 0.48, 0.3, 0.06, mats.dark, { rotation: [0, 0, 0] });
+    box(scene, x + 0.25, top + 0.43, z + 0.17, 0.4, 0.22, 0.02, mats.led, { castShadow: false });
+    box(scene, x - 0.15, top + 0.1, z + 1.1, 0.22, 0.14, 0.18, mats.steelDark);
+    box(scene, x + 0.2, top + 0.2, z - 1.3, 0.3, 0.4, 0.3, std('#d9d2bf'));                          // the bag stand
+    // The candy rack at the near end: little colored boxes on a stand.
+    box(scene, x - 0.1, top + 0.2, z - d / 2 + 0.25, 0.6, 0.06, 0.4, mats.woodDark);
+    ['#d34b3d', '#d4b13e', '#5c8c61', '#5c7795', '#9a5aa0', '#e08a3c'].forEach((c, i) => box(scene, x - 0.3 + (i % 3) * 0.2, top + 0.3, z - d / 2 + 0.15 + Math.floor(i / 3) * 0.2, 0.17, 0.16, 0.17, std(c, { roughness: 0.6 })));
+    // The cashier's back shelving on the right wall.
+    const bb = BACKBAR;
+    box(scene, bb.x, 1.1, bb.z, 0.12, 2.2, bb.d, mats.woodDark);
+    for (const y of [0.5, 1.1, 1.7]) box(scene, bb.x - 0.18, y, bb.z, 0.34, 0.05, bb.d - 0.1, mats.woodLight);
+    ['#d9a55f', '#6c8e7a', '#c95c4e', '#4d6c8a', '#e0cf91', '#8e5c7a', '#f0e7cf'].forEach((c, i) => {
+      for (const y of [0.5, 1.1, 1.7]) box(scene, bb.x - 0.18, y + 0.14, bb.z - 1.8 + i * 0.6, 0.22, 0.24, 0.4, std(c, { roughness: 0.65 }));
+    });
+  }
+  function backroom() {
+    const f = BACKROOM_FIXTURES;
+    // Pallet racking along the wall.
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) box(scene, f.rack.x + sx * 0.4, 1.0, f.rack.z + sz * (f.rack.d / 2 - 0.05), 0.07, 2.0, 0.07, mats.metal);
+    for (const y of [0.35, 1.0, 1.65]) box(scene, f.rack.x, y, f.rack.z, 0.88, 0.05, f.rack.d - 0.05, mats.steelDark);
+    // The receiving desk: a scale, a clipboard and the delivery paperwork.
+    box(scene, f.desk.x, 0.42, f.desk.z, f.desk.w, 0.84, f.desk.d, mats.wood);
+    box(scene, f.desk.x, 0.87, f.desk.z, f.desk.w + 0.1, 0.07, f.desk.d + 0.1, mats.woodLight);
+    box(scene, f.desk.x - 0.4, 0.94, f.desk.z, 0.5, 0.06, 0.4, mats.steelDark);
+    box(scene, f.desk.x + 0.4, 0.93, f.desk.z + 0.05, 0.3, 0.03, 0.4, mats.chalk);
+    // A pallet to unload onto.
+    box(scene, f.pallet.x, 0.07, f.pallet.z, f.pallet.w, 0.14, f.pallet.d, mats.woodDark);
+    signPlane(scene, 'RECEIVING', f.desk.x, 1.9, f.desk.z - 0.38, 1.4, 0.3, { background: '#3d5148', foreground: '#f4e9d1', accent: '#d6b578', fontSize: 42, width: 512, height: 80 });
+  }
+  gondola(); coolers(); produceBins(); bakery(); checkout(); backroom();
 
-  // Beverage and freezer island at the far right of the centre aisle.
-  box(scene, 2.5, 0.19, -4.0, 2.1, 0.32, 2.25, mats.steelDark);
-  box(scene, 2.5, 0.64, -4.0, 2.1, 0.1, 2.2, mats.metal);
-  box(scene, 2.5, 1.2, -4.0, 2.1, 0.12, 2.16, mats.metal);
-  box(scene, 2.5, 1.76, -4.0, 2.1, 0.12, 2.12, mats.metal);
-  const chilledHeader = new GFX.Mesh(new GFX.PlaneGeometry(2.9, 0.4), new GFX.MeshBasicMaterial({ map: makeSignTexture('COLD DRINKS · FROZEN', { background: '#31515b', foreground: '#f1eee0', accent: '#8ec6d6', fontSize: 34, height: 96 }), side: GFX.DoubleSide }));
-  chilledHeader.position.set(2.5, 2.07, -4.0); scene.add(chilledHeader);
+  // The models were being sculpted in workers all this while: wait for the first wave before standing any of them up,
+  // so nothing is baked on the page's own thread. (No workers, or a slow bake: it falls back to baking here.)
+  onProgress('Sculpting the neighborhood', 72);
+  if (typeof Worker !== 'undefined') await Promise.race([Promise.all(waits), new Promise((resolve) => setTimeout(resolve, 90000))]);
 
-  // Checkout is built as a substantial counter, card terminal, register and gum display.
-  box(scene, 6.3, 0.56, 3.42, 3.35, 1.12, 1.48, mats.wood);
-  box(scene, 6.3, 1.17, 3.42, 3.47, 0.14, 1.58, mats.dark);
-  box(scene, 6.3, 1.27, 3.42, 3.1, 0.045, 1.32, mats.trim);
-  box(scene, 5.25, 1.47, 3.08, 0.72, 0.34, 0.48, mats.steelDark);
-  box(scene, 5.25, 1.66, 3.08, 0.6, 0.03, 0.34, mats.bulb);
-  box(scene, 7.38, 1.4, 3.32, 0.52, 0.32, 0.42, mats.dark);
-  const gumColors = ['#d34b3d', '#d4b13e', '#5c8c61', '#5c7795'];
-  gumColors.forEach((color, i) => {
-    const gum = new GFX.MeshStandardMaterial({ color, roughness: 0.62 });
-    box(scene, 5.35 + i * 0.24, 1.44, 3.78, 0.19, 0.24, 0.24, gum);
-  });
-  const cashierSign = new GFX.Mesh(new GFX.PlaneGeometry(1.7, 0.34), new GFX.MeshBasicMaterial({ map: makeSignTexture('NEXT PLEASE', { background: '#354b47', foreground: '#f0e7cf', accent: '#d9a55f', fontSize: 34, height: 96 }), side: GFX.DoubleSide }));
-  cashierSign.position.set(6.3, 1.68, 4.2); scene.add(cashierSign);
-
-  // A compact receiving nook gives deliveries a physical home before Marisol takes them out.
-  box(scene, -7.75, 0.42, 4.85, 1.15, 0.82, 1.1, mats.wood);
-  box(scene, -7.75, 0.88, 4.85, 1.2, 0.1, 1.14, mats.woodLight);
-  box(scene, -7.75, 1.33, 4.85, 1.1, 0.78, 1.05, mats.wood);
-  const stockroomLabel = new GFX.Mesh(new GFX.PlaneGeometry(1.0, 0.28), new GFX.MeshBasicMaterial({ map: makeSignTexture('RECEIVING', { background: '#3d5148', foreground: '#f4e9d1', accent: '#d6b578', fontSize: 29, height: 96 }), side: GFX.DoubleSide }));
-  stockroomLabel.position.set(-7.75, 1.78, 4.28); scene.add(stockroomLabel);
-
-  // Small comforts: a newspaper rack, coffee station, trash bin, milk crate and hand trolley.
-  box(scene, -8.05, 0.42, 1.75, 0.62, 0.82, 0.45, mats.dark);
-  for (let k = 0; k < 5; k++) box(scene, -8.05, 0.57 + k * 0.03, 1.75 - k * 0.012, 0.52, 0.22, 0.015, mats.chalk, { rotation: [0.09, 0, (k - 2) * 0.035] });
-  cylinder(scene, 0.15, 0.48, 4.7, 0.34, 0.34, 0.9, mats.steelDark, 20);
-  box(scene, 0.15, 0.95, 4.7, 0.66, 0.11, 0.58, mats.dark);
-  for (const x of [-0.65, 0.85]) cylinder(scene, x, 0.13, 4.15, 0.16, 0.16, 0.28, mats.steelDark, 12);
-  box(scene, -7.95, 0.2, -0.5, 0.65, 0.42, 0.56, mats.wood);
-  box(scene, -7.95, 0.44, -0.5, 0.68, 0.08, 0.6, mats.woodLight);
-
-  // Product sign rails and the merchandise itself. Every shelf count is reflected in the scene.
-  onProgress('Filling the grocery shelves', 53);
+  // ——— the stock: the engine's grocery props, a few of each to match what is on the shelf ———
+  onProgress('Stocking the shelves', 80);
   const displayGroups = new Map();
-  const productMaterials = new Map();
-  function merchandiseMaterial(product) {
-    if (!productMaterials.has(product.id)) {
-      productMaterials.set(product.id, new GFX.MeshStandardMaterial({
-        color: product.color, roughness: product.kind === 'bottle' ? 0.25 : 0.73,
-        metalness: product.kind === 'can' ? 0.46 : 0,
-        emissive: '#000000',
-      }));
-    }
-    return productMaterials.get(product.id);
+  const sizeCache = new Map();
+  function sizeOf(mesh) {
+    mesh.geometry.computeBoundingBox();
+    const b = mesh.geometry.boundingBox, s = mesh.scale.x || 1;
+    return { w: (b.max.x - b.min.x) * s, h: (b.max.y - b.min.y) * s, d: (b.max.z - b.min.z) * s };
   }
-  function makePack(group, product, x, y, z, sizeFactor = 1) {
-    const color = merchandiseMaterial(product);
-    const factor = sizeFactor;
-    if (product.kind === 'produce') {
-      const radius = product.id === 'lettuce' ? 0.17 : 0.18;
-      const veg = sphere(group, x, y + radius, z, radius, color, product.id === 'bananas' ? [1.35, 0.58, 0.72] : [1, 1, 1]);
-      if (product.id === 'lettuce') for (let a = 0; a < 5; a++) sphere(group, x + Math.cos(a * 1.26) * 0.11, y + 0.11, z + Math.sin(a * 1.26) * 0.11, 0.1, mats.leaf, [1, 0.4, 1]);
-      if (product.id === 'apples' || product.id === 'tomatoes') cylinder(group, x, y + 0.22, z, 0.012, 0.012, 0.055, mats.wood, 6);
-      if (product.id === 'bananas') veg.rotation.z = 0.18;
-      return veg;
-    }
-    let mesh;
-    if (product.kind === 'bottle') {
-      mesh = new GFX.Group();
-      cylinder(mesh, 0, 0.22, 0, 0.095 * factor, 0.11 * factor, 0.42 * factor, color, 14);
-      cylinder(mesh, 0, 0.455, 0, 0.045 * factor, 0.06 * factor, 0.08 * factor, color, 12);
-      cylinder(mesh, 0, 0.5, 0, 0.043 * factor, 0.043 * factor, 0.04 * factor, mats.yellow, 12);
-      group.add(mesh); mesh.position.set(x, y, z); return mesh;
-    }
-    if (product.kind === 'can') mesh = cylinder(group, x, y + 0.18, z, 0.13, 0.13, 0.36, color, 18);
-    else if (product.kind === 'eggbox' || product.kind === 'carton' || product.kind === 'box' || product.kind === 'bag' || product.kind === 'tray' || product.kind === 'frozen') {
-      const dims = product.kind === 'eggbox' ? [0.35, 0.19, 0.28] : product.kind === 'bag' ? [0.27, 0.5, 0.16] : product.kind === 'box' ? [0.28, 0.5, 0.18] : product.kind === 'tray' ? [0.35, 0.12, 0.26] : product.kind === 'frozen' ? [0.35, 0.12, 0.27] : [0.28, 0.4, 0.2];
-      mesh = box(group, x, y + dims[1] / 2, z, ...dims, color);
-      const label = new GFX.Mesh(new GFX.PlaneGeometry(dims[0] * 0.82, dims[1] * 0.38), new GFX.MeshBasicMaterial({ map: labelTexture(product.short), side: GFX.DoubleSide }));
-      label.position.set(x, y + dims[1] * 0.52, z + dims[2] / 2 + 0.006); group.add(label);
-    } else if (product.kind === 'loaf') {
-      mesh = sphere(group, x, y + 0.19, z, 0.2, color, [1.45, 0.76, 0.72]);
-    } else if (product.kind === 'tub') {
-      mesh = cylinder(group, x, y + 0.16, z, 0.15, 0.13, 0.32, color, 16);
-      cylinder(group, x, y + 0.325, z, 0.155, 0.155, 0.035, mats.chalk, 16);
-    }
-    return mesh;
-  }
-
   for (const product of PRODUCTS) {
-    const display = new GFX.Group();
-    const [x, , z] = DISPLAY[product.id];
-    display.position.set(x, 0, z); scene.add(display);
-    const shelfLabel = new GFX.Mesh(new GFX.PlaneGeometry(1.0, 0.3), new GFX.MeshBasicMaterial({ map: labelTexture(product.short, true), side: GFX.DoubleSide }));
-    shelfLabel.position.set(0, 0.1, 0.52); display.add(shelfLabel);
-    const packs = [];
-    for (let i = 0; i < 4; i++) {
-      const pack = new GFX.Group(); display.add(pack);
-      const col = i % 2, row = Math.floor(i / 2);
-      makePack(pack, product, (col - 0.5) * 0.42, 0.24 + row * 0.36, (row - 0.5) * 0.34, product.kind === 'produce' ? 1 : 0.9);
-      packs.push(pack);
+    const slot = SLOTS[product.id];
+    const def = CAST[`prop:${product.id}`];
+    const group = new GFX.Group();
+    group.position.set(slot.x, slot.y, slot.z); group.rotation.y = slot.yaw; scene.add(group);
+    const sample = createStatic(GFX, def, { detail: DETAIL.prop });
+    const size = sizeOf(sample);
+    sizeCache.set(product.id, size);
+    const cols = Math.max(1, Math.min(6, Math.floor(slot.width / (size.w * 1.12))));
+    const rows = Math.max(1, Math.min(2, Math.floor(slot.depth / (size.d * 1.12))));
+    const capacity = Math.min(MAX_VISIBLE_STOCK, cols * rows);
+    const units = [];
+    for (let i = 0; i < capacity; i++) {
+      const row = Math.floor(i / cols), col = i % cols;
+      const unit = i === 0 ? sample : createStatic(GFX, def, { detail: DETAIL.prop });
+      const colsInRow = Math.min(cols, capacity - row * cols);
+      const spacing = slot.width / cols;
+      unit.position.set((col - (colsInRow - 1) / 2) * spacing, 0, slot.depth / 2 - size.d / 2 - 0.02 - row * (size.d * 1.15 + 0.03));
+      unit.rotation.y = ((i * 37) % 11 - 5) * 0.012;
+      group.add(unit); units.push(unit);
     }
-    const shelfBase = box(display, 0, 0.06, -0.08, 1.26, 0.1, 0.98, product.section === 'produce' ? mats.wood : mats.woodLight);
-    shelfBase.receiveShadow = true;
-    displayGroups.set(product.id, { group: display, packs, shelfLabel, product });
+    // The shelf-edge tag for each line.
+    const tag = new GFX.Mesh(new GFX.PlaneGeometry(Math.min(0.9, slot.width * 0.8), 0.22), new GFX.MeshBasicMaterial({ map: labelTexture(product.short), side: GFX.FrontSide }));
+    tag.position.set(0, slot.kind === 'bin' ? -0.1 : -0.14, slot.depth / 2 + (slot.kind === 'bin' ? 0.58 : 0.03));
+    if (slot.kind === 'bin') tag.rotation.x = -0.2;
+    group.add(tag);
+    shelfLabels.set(product.id, tag);
+    displayGroups.set(product.id, { group, units, tag, product, capacity, lastQty: -1 });
   }
 
-  onProgress('Bringing the staff and bodega cats in', 72);
-  // Employee models are actual sculpted engine characters, with a distinct job and a home position.
-  const staffModels = [];
-  const lou = createModel(GFX, gent, { detail: 0.75 });
-  const louFloor = normalizeActorHeight(lou, HUMAN_HEIGHT);
-  const louHome = [6.95, louFloor, 2.15];
-  lou.group.position.set(...louHome); lou.group.rotation.y = -0.18; scene.add(lou.group);
-  staffModels.push({ model: lou, character: 'gent', name: STAFF[0].name, time: 0, home: louHome, poseAccumulator: 0 });
-  const marisol = createModel(GFX, vendor, { detail: 0.75 });
-  const marisolFloor = normalizeActorHeight(marisol, HUMAN_HEIGHT);
-  const marisolHome = [BACKROOM[0], marisolFloor, BACKROOM[2] - 0.35];
-  marisol.group.position.set(...marisolHome); marisol.group.rotation.y = -Math.PI / 2; scene.add(marisol.group);
-  staffModels.push({ model: marisol, character: 'vendor', name: STAFF[1].name, time: 1.5, home: marisolHome, poseAccumulator: 0, route: [marisolHome], routeStage: 'idle' });
+  // The stockroom: cartons on the rack and the pallet, more of them the more is in the back.
+  const cartonDef = CAST['prop:carton'];
+  const cartons = [];
+  const rack = BACKROOM_FIXTURES.rack, pallet = BACKROOM_FIXTURES.pallet;
+  for (const [level, y] of [0.38, 1.03, 1.68].entries()) for (let i = 0; i < 4; i++) {
+    const c = createStatic(GFX, cartonDef, { detail: DETAIL.prop });
+    c.rotation.y = Math.PI / 2; c.scale.setScalar(1.6);
+    c.position.set(rack.x, y, rack.z - rack.d / 2 + 0.38 + i * 0.58 + (level % 2) * 0.03);
+    c.visible = false; scene.add(c); cartons.push(c);
+  }
+  for (const [layer, y] of [0.14, 0.5, 0.86].entries()) for (let i = 0; i < 4; i++) {
+    const c = createStatic(GFX, cartonDef, { detail: DETAIL.prop });
+    c.scale.setScalar(1.6);
+    c.rotation.y = layer % 2 ? Math.PI / 2 : 0;
+    c.position.set(pallet.x + ((i % 2) - 0.5) * 0.6, y, pallet.z + (Math.floor(i / 2) - 0.5) * 0.6);
+    c.visible = false; scene.add(c); cartons.push(c);
+  }
 
-  const playerModel = createModel(GFX, OWNER_CHARACTER, { detail: 0.85 });
+  // ——— people ———
+  onProgress('Bringing in the staff and the bodega cats', 86);
+  const lou = createModel(GFX, CAST['staff:lou'], { detail: DETAIL.staff });
+  const louFloor = normalizeActorHeight(lou, HUMAN_HEIGHT);
+  const louHome = [LOU_HOME[0], louFloor, LOU_HOME[2]];
+  lou.group.position.set(...louHome); lou.group.rotation.y = -Math.PI / 2; scene.add(lou.group);
+  const marisol = createModel(GFX, CAST['staff:marisol'], { detail: DETAIL.staff });
+  const marisolFloor = normalizeActorHeight(marisol, HUMAN_HEIGHT);
+  const marisolHome = [MARISOL_HOME[0], marisolFloor, MARISOL_HOME[2]];
+  marisol.group.position.set(...marisolHome); marisol.group.rotation.y = Math.PI / 2; scene.add(marisol.group);
+  const staffModels = [
+    { model: lou, name: STAFF[0].name, time: 0, home: louHome, poseAccumulator: 0 },
+    { model: marisol, name: STAFF[1].name, time: 1.5, home: marisolHome, poseAccumulator: 0, route: [marisolHome], routeStage: 'idle' },
+  ];
+
+  const playerModel = createModel(GFX, CAST.owner, { detail: DETAIL.owner });
   const playerFloor = normalizeActorHeight(playerModel, HUMAN_HEIGHT);
   const savedPlayer = window.__bodegaState?.playerPosition ?? { x: PLAYER_HOME[0], z: PLAYER_HOME[2] };
-  const player = { model: playerModel, floor: playerFloor, x: savedPlayer.x, z: savedPlayer.z, time: 0, poseAccumulator: 0, facing: 0 };
+  const spot = navBlocked(savedPlayer.x, savedPlayer.z) ? nearestWalkable(savedPlayer.x, savedPlayer.z) : savedPlayer;
+  const player = { model: playerModel, floor: playerFloor, x: spot.x, z: spot.z, time: 0, poseAccumulator: 0 };
   playerModel.group.position.set(player.x, playerFloor, player.z);
   scene.add(playerModel.group);
-  const ownerTag = new GFX.Mesh(
-    new GFX.PlaneGeometry(0.92, 0.22),
-    new GFX.MeshBasicMaterial({ map: makeSignTexture('STORE OWNER', { background: '#355746', foreground: '#f5edd8', accent: '#9fbd8b', width: 256, height: 96, fontSize: 32 }), transparent: true, side: GFX.DoubleSide, depthTest: false, depthWrite: false }),
-  );
-  ownerTag.renderOrder = 25;
-  scene.add(ownerTag);
+  const tagStyle = (accent, w = 256) => ({ background: '#355746', foreground: '#f5edd8', accent, width: w, height: 96, fontSize: 32 });
+  const makeTag = (text, style, order) => {
+    const mesh = new GFX.Mesh(new GFX.PlaneGeometry(style.width / 280, 0.22), new GFX.MeshBasicMaterial({ map: makeSignTexture(text, style), transparent: true, side: GFX.DoubleSide, depthTest: false, depthWrite: false }));
+    mesh.renderOrder = order; scene.add(mesh);
+    return mesh;
+  };
+  const ownerTag = makeTag('STORE OWNER', tagStyle('#9fbd8b'), 25);
   const playerKeys = new Set();
   const keyDirections = {
-    KeyW: 'up', ArrowUp: 'up', w: 'up', W: 'up',
-    KeyS: 'down', ArrowDown: 'down', s: 'down', S: 'down',
-    KeyA: 'left', ArrowLeft: 'left', a: 'left', A: 'left',
-    KeyD: 'right', ArrowRight: 'right', d: 'right', D: 'right',
+    KeyW: 'up', ArrowUp: 'up', w: 'up', W: 'up', KeyS: 'down', ArrowDown: 'down', s: 'down', S: 'down',
+    KeyA: 'left', ArrowLeft: 'left', a: 'left', A: 'left', KeyD: 'right', ArrowRight: 'right', d: 'right', D: 'right',
   };
   const editableTarget = () => {
     const el = document.activeElement;
@@ -582,10 +546,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) {
   };
   const clearPlayerKeys = () => playerKeys.clear();
   const onKeyDown = (event) => {
-    if (event.key === 'Shift') {
-      if (!editableTarget()) playerKeys.add('run');
-      return;
-    }
+    if (event.key === 'Shift') { if (!editableTarget()) playerKeys.add('run'); return; }
     const direction = keyDirections[event.code] ?? keyDirections[event.key];
     if (!direction || editableTarget() || event.ctrlKey || event.metaKey || event.altKey) return;
     playerKeys.add(direction);
@@ -612,106 +573,103 @@ export async function createBodegaWorld(host, onProgress = () => {}) {
     button.addEventListener('contextmenu', (event) => event.preventDefault());
   });
 
-  // The purchasing manager is a regular, suited employee, created only after hiring.
-  const purchasingManagerModel = createModel(GFX, purchasingSuit, { detail: 0.75 });
-  const managerFloor = normalizeActorHeight(purchasingManagerModel, HUMAN_HEIGHT);
-  const managerHome = [-6.05, managerFloor, 3.05];
-  purchasingManagerModel.group.position.set(...managerHome);
-  purchasingManagerModel.group.visible = false;
-  scene.add(purchasingManagerModel.group);
-  const managerTag = new GFX.Mesh(
-    new GFX.PlaneGeometry(1.08, 0.22),
-    new GFX.MeshBasicMaterial({ map: makeSignTexture('RAFAEL · BUYING', { background: '#40516a', foreground: '#f3ead6', accent: '#d3b77d', width: 320, height: 96, fontSize: 30 }), transparent: true, side: GFX.DoubleSide, depthTest: false, depthWrite: false }),
-  );
-  managerTag.renderOrder = 24;
+  // The purchasing manager joins at the receiving desk once hired; his model bakes in the background until then.
+  let manager = null;
+  const managerTag = makeTag('RAFAEL · BUYING', tagStyle('#d3b77d', 320), 24);
   managerTag.visible = false;
-  scene.add(managerTag);
-  let managerTime = 0;
-  let managerPoseAccumulator = 0;
-  // Three true engine cats, fitted to house-cat dimensions and given separate roaming routes.
+  function ensureManager() {
+    if (manager) return manager;
+    const model = createModel(GFX, CAST['staff:rafael'], { detail: DETAIL.staff });
+    const floor = normalizeActorHeight(model, HUMAN_HEIGHT);
+    model.group.position.set(MANAGER_HOME[0], floor, MANAGER_HOME[2]);
+    model.group.rotation.y = Math.PI;
+    scene.add(model.group);
+    manager = { model, floor, time: 0, poseAccumulator: 0 };
+    return manager;
+  }
+
   const cats = CAT_ROSTER.map((cat, index) => {
-    const model = createModel(GFX, CAT_DEFS[`cat-${cat.coat}`], { detail: 0.82 });
+    const model = createModel(GFX, CAST[`cat:${cat.id}`], { detail: DETAIL.cat });
     const floor = normalizeActorHeight(model, CAT_HEIGHT);
-    const place = [cat.place[0], floor, cat.place[2]];
+    const stops = CAT_PATROLS[index].map(([x, z]) => [x, 0, z]);
+    const place = [stops[0][0], floor, stops[0][2]];
     model.group.position.set(...place);
     model.group.rotation.y = index * 1.5;
     scene.add(model.group);
-    const stops = CAT_PATROLS[index].map(([x,z])=>[x,0,z]);
-    const route = planWalkRoute([place[0],0,place[2]], stops);
+    const route = planWalkRoute([place[0], 0, place[2]], stops.slice(1));
     return { ...cat, model, place, time: index * 3.7, route, distance: 0, wait: 0.4 + index * 0.55, poseAccumulator: 0, patrolStops: stops, patrolIndex: 0 };
   });
 
+  // ——— customers: residents walk in off the sidewalk, shop, queue at the counter and leave ———
   const customerActors = new Map();
+  const readyResidents = new Set(FIRST_WAVE);
+  const stand = (productId) => { const [x, z] = SLOTS[productId].stand; return [x, 0, z]; };
 
-  function browseTargets(customer) {
-    const targets = [];
+  function browseStops(customer) {
+    const stops = [];
     for (const line of customer.basket ?? [{ productId: customer.demandId }]) {
-      const section = PRODUCT_BY_ID[line.productId]?.section ?? 'dry';
-      const target = GROUP_TARGET[section] ?? GROUP_TARGET.dry;
-      if (!targets.length || Math.hypot(target[0]-targets[targets.length-1][0],target[2]-targets[targets.length-1][2])>0.5) targets.push(target);
+      if (!SLOTS[line.productId]) continue;
+      const point = stand(line.productId);
+      const last = stops[stops.length - 1];
+      if (!last || Math.hypot(point[0] - last[0], point[2] - last[2]) > 0.5) stops.push(point);
     }
-    return targets.length ? targets : [GROUP_TARGET.dry];
+    return stops.length ? stops : [stand('rice')];
   }
 
   function setCustomerRoute(actor, customer) {
-    const current = [actor.model.group.position.x, 0, actor.model.group.position.z];
+    const here = [actor.model.group.position.x, 0, actor.model.group.position.z];
     if (customer.phase === 'browsing') {
-      actor.route = planWalkRoute(current, browseTargets(customer));
-      actor.routeFraction = 0.58; // arrive early enough to actually browse the last shelf
+      actor.route = planWalkRoute(here, [DOOR_IN, ...browseStops(customer)]);
+      actor.routeFraction = 0.62;
     } else if (customer.phase === 'checkout') {
-      actor.route = planWalkRoute(current, [CHECKOUT]);
+      actor.route = planWalkRoute(here, [CHECKOUT]);
       actor.routeFraction = 0.96;
     } else {
-      actor.route = planWalkRoute(current, [EXIT]);
+      actor.route = planWalkRoute(here, [DOOR_IN, SIDEWALK_EXITS[customer.id % 2]]);
       actor.routeFraction = 0.94;
     }
     actor.phase = customer.phase;
   }
 
   function createCustomerActor(customer) {
-    const def = CUSTOMER_MODELS[customer.character] ?? tourist;
-    const model = createModel(GFX, def, { detail: 0.7 });
-    const floor = normalizeActorHeight(model, 1.38 + (customer.heightVariant ?? 1) * 0.06);
-    model.group.position.set(EXIT[0], floor, EXIT[2]);
+    const resident = RESIDENT_BY_ID[customer.residentId] ?? RESIDENTS.find((r) => r.character === customer.character) ?? RESIDENTS[customer.id % RESIDENTS.length];
+    const model = createModel(GFX, CAST[`resident:${resident.id}`], { detail: DETAIL.resident });
+    const floor = normalizeActorHeight(model, resident.height);
+    const start = [SIDEWALK_SPAWN[0] + (customer.id % 3) * 0.5 - 0.5, 0, SIDEWALK_SPAWN[2]];
+    model.group.position.set(start[0], floor, start[2]);
     scene.add(model.group);
-
     let catBadge = null;
     if (customer.catReaction === 'delighted' || customer.catReaction === 'annoyed') {
       const delighted = customer.catReaction === 'delighted';
-      const texture = makeSignTexture(delighted ? '♥' : '!', {
-        background: delighted ? '#315b45' : '#8e4b3d',
-        foreground: '#fff5de',
-        accent: delighted ? '#9ac08a' : '#e2a17f',
-        width: 128, height: 128, fontSize: 76,
-      });
       catBadge = new GFX.Mesh(
         new GFX.PlaneGeometry(0.34, 0.34),
-        new GFX.MeshBasicMaterial({ map: texture, transparent: true, side: GFX.DoubleSide, depthTest: false, depthWrite: false }),
+        new GFX.MeshBasicMaterial({ map: makeSignTexture(delighted ? '♥' : '!', { background: delighted ? '#315b45' : '#8e4b3d', foreground: '#fff5de', accent: delighted ? '#9ac08a' : '#e2a17f', width: 128, height: 128, fontSize: 76 }), transparent: true, side: GFX.DoubleSide, depthTest: false, depthWrite: false }),
       );
       catBadge.renderOrder = 20;
       scene.add(catBadge);
     }
-    const actor = { model, id: customer.id, catBadge, phase: null, route: [EXIT], routeFraction: 0.58, time: customer.id * 0.7, poseAccumulator: 0, floor };
+    const actor = { model, id: customer.id, catBadge, phase: null, route: [start], routeFraction: 0.6, time: customer.id * 0.7, poseAccumulator: 0, floor, start };
     customerActors.set(customer.id, actor);
     setCustomerRoute(actor, customer);
+    // Someone restored mid-shop starts where their clock says they should be, not out on the street.
     return actor;
+  }
+
+  function disposeActor(actor) {
+    scene.remove(actor.model.group);
+    if (actor.catBadge) {
+      scene.remove(actor.catBadge);
+      actor.catBadge.geometry.dispose();
+      actor.catBadge.material.map?.dispose();
+      actor.catBadge.material.dispose();
+    }
+    actor.model.mesh.geometry.dispose();
   }
 
   function syncCustomers(state, dt) {
     const active = new Set(state.customers.map((c) => c.id));
     for (const [id, actor] of customerActors) {
-      if (!active.has(id)) {
-        scene.remove(actor.model.group);
-        if (actor.catBadge) {
-          scene.remove(actor.catBadge);
-          actor.catBadge.geometry.dispose();
-          actor.catBadge.material.map?.dispose();
-          actor.catBadge.material.dispose();
-        }
-        actor.model.mesh.geometry.dispose();
-        for (const material of Array.isArray(actor.model.materials) ? actor.model.materials : [actor.model.materials]) material?.dispose?.();
-        customerActors.delete(id);
-      }
+      if (!active.has(id)) { disposeActor(actor); customerActors.delete(id); }
     }
     for (const customer of state.customers) {
       let actor = customerActors.get(customer.id);
@@ -724,8 +682,9 @@ export async function createBodegaWorld(host, onProgress = () => {}) {
       const ahead = pointOnRoute(actor.route, Math.min(1, progress + 0.025));
       actor.model.group.position.set(point[0], actor.floor, point[2]);
       if (progress < 1) faceAlong(actor.model.group, point, ahead);
+      else if (customer.phase === 'checkout') actor.model.group.rotation.y = Math.PI / 2;           // face the counter
       if (actor.catBadge) {
-        actor.catBadge.position.set(point[0], actor.floor + 0.16, point[2]);
+        actor.catBadge.position.set(point[0], actor.floor + 1.72, point[2]);
         actor.catBadge.quaternion.copy(stage.camera.quaternion);
         actor.catBadge.visible = customer.phase !== 'leaving';
       }
@@ -741,25 +700,26 @@ export async function createBodegaWorld(host, onProgress = () => {}) {
   function updateStaff(state, dt) {
     const floorLead = staffModels[1];
     const task = state.staffWork ?? { stage: 'idle' };
-    const stage = task.stage ?? 'idle';
-    const section = PRODUCT_BY_ID[task.productId]?.section ?? 'dry';
-    const target = GROUP_TARGET[section] ?? GROUP_TARGET.dry;
-    if (floorLead.routeStage !== stage || floorLead.routeProduct !== task.productId) {
+    const stageName = task.stage ?? 'idle';
+    const slot = SLOTS[task.productId];
+    const target = slot ? stand(task.productId) : floorLead.home;
+    if (floorLead.routeStage !== stageName || floorLead.routeProduct !== task.productId) {
       const current = [floorLead.model.group.position.x, 0, floorLead.model.group.position.z];
-      const destination = stage === 'walking-to-shelf' || stage === 'stocking' ? target : floorLead.home;
+      const destination = stageName === 'walking-to-shelf' || stageName === 'stocking' ? target : floorLead.home;
       floorLead.route = planWalkRoute(current, [destination]);
-      floorLead.routeStage = stage;
+      floorLead.routeStage = stageName;
       floorLead.routeProduct = task.productId;
     }
-    if (stage === 'walking-to-shelf' || stage === 'walking-back') {
+    if (stageName === 'walking-to-shelf' || stageName === 'walking-back') {
       const progress = Math.min(1, Math.max(0, 1 - task.timer / Math.max(0.01, task.duration)));
       const point = pointOnRoute(floorLead.route, progress);
       const ahead = pointOnRoute(floorLead.route, Math.min(1, progress + 0.035));
       floorLead.model.group.position.set(point[0], floorLead.home[1], point[2]);
       if (progress < 1) faceAlong(floorLead.model.group, point, ahead);
-    } else if (stage === 'stocking') {
+    } else if (stageName === 'stocking') {
       const end = floorLead.route[floorLead.route.length - 1];
       floorLead.model.group.position.set(end[0], floorLead.home[1], end[2]);
+      if (slot) floorLead.model.group.rotation.y = slot.yaw + Math.PI;                                // face the shelf
     } else {
       floorLead.model.group.position.set(...floorLead.home);
     }
@@ -767,7 +727,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) {
       worker.time += dt;
       worker.poseAccumulator = (worker.poseAccumulator ?? 0) + dt;
       if (worker.poseAccumulator >= 0.05) {
-        const moving = worker === floorLead && (stage === 'walking-to-shelf' || stage === 'walking-back');
+        const moving = worker === floorLead && (stageName === 'walking-to-shelf' || stageName === 'walking-back');
         worker.model.pose({ clip: moving ? 'walk' : 'idle', t: worker.time, time: worker.time, seed: worker.name.length });
         worker.poseAccumulator %= 0.05;
       }
@@ -792,8 +752,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) {
       if (progress >= 1) {
         cat.patrolIndex = (cat.patrolIndex + 1) % cat.patrolStops.length;
         const current = [cat.model.group.position.x, 0, cat.model.group.position.z];
-        const nextStop = cat.patrolStops[cat.patrolIndex];
-        cat.route = findWalkPath(current, nextStop);
+        cat.route = findWalkPath(current, cat.patrolStops[cat.patrolIndex]);
         cat.distance = 0;
         cat.wait = 1.8 + ((cat.patrolIndex + cat.id.length) % 4) * 0.65;
         continue;
@@ -814,15 +773,14 @@ export async function createBodegaWorld(host, onProgress = () => {}) {
       const qty = shelfQuantity(state, id);
       if (display.lastQty === qty) continue;
       display.lastQty = qty;
-      const visiblePacks = Math.min(display.packs.length, Math.ceil(qty / 2));
-      display.packs.forEach((pack, i) => { pack.visible = i < visiblePacks; });
-      display.group.visible = true;
-      display.shelfLabel.material.opacity = 1;
-      // A shelf with no stock gets a subtle warning colour on its price rail.
-      if (qty === 0) display.shelfLabel.material.color.set('#777777');
-      else display.shelfLabel.material.color.set('#ffffff');
+      const visible = qty <= 0 ? 0 : Math.max(1, Math.round(display.capacity * Math.min(1, qty / 16)));
+      display.units.forEach((unit, i) => { unit.visible = i < visible; });
+      display.tag.material.color.set(qty === 0 ? '#777777' : '#ffffff');
     }
-    // Staff and cats get a little life even when the shop is quiet.
+    let back = 0;
+    for (const product of PRODUCTS) back += stockroomQuantity(state, product.id);
+    const shown = back <= 0 ? 0 : Math.min(cartons.length, 1 + Math.floor(back / 14));
+    cartons.forEach((c, i) => { c.visible = i < shown; });
   }
 
   function updatePlayer(state, dt) {
@@ -831,18 +789,14 @@ export async function createBodegaWorld(host, onProgress = () => {}) {
     const vertical = (playerKeys.has('up') ? 1 : 0) - (playerKeys.has('down') ? 1 : 0);
     const moving = canMove && (horizontal !== 0 || vertical !== 0);
     if (moving) {
-      // WASD, arrows and touch controls all follow the current camera orientation.
       const [dx, dz] = screenMovementToWorld(horizontal, vertical, stage.view.yaw);
       const speed = PLAYER_SPEED * (playerKeys.has('run') ? 1.45 : 1);
-      const stepX = dx * speed * dt;
-      const stepZ = dz * speed * dt;
-      const nextX = player.x + stepX;
-      const nextZ = player.z + stepZ;
+      const nextX = player.x + dx * speed * dt;
+      const nextZ = player.z + dz * speed * dt;
       // Resolve axes separately so the owner can slide along a shelf edge.
       if (!navBlocked(nextX, player.z)) player.x = nextX;
       if (!navBlocked(player.x, nextZ)) player.z = nextZ;
-      const direction = [dx, 0, dz];
-      playerModel.group.rotation.y = Math.atan2(direction[0], direction[2]);
+      playerModel.group.rotation.y = Math.atan2(dx, dz);
     }
     playerModel.group.position.set(player.x, player.floor, player.z);
     player.time += dt;
@@ -859,34 +813,62 @@ export async function createBodegaWorld(host, onProgress = () => {}) {
 
   function updatePurchasingManager(state, dt) {
     const hired = Boolean(state.purchasingManagerHired);
-    purchasingManagerModel.group.visible = hired;
     managerTag.visible = hired;
-    if (!hired) return;
-    managerTime += dt;
-    managerPoseAccumulator += dt;
-    if (managerPoseAccumulator >= 0.05) {
-      purchasingManagerModel.pose({ clip: 'idle', t: managerTime, time: managerTime, seed: 43 });
-      managerPoseAccumulator %= 0.05;
+    if (!hired) { if (manager) manager.model.group.visible = false; return; }
+    const m = ensureManager();
+    m.model.group.visible = true;
+    m.time += dt;
+    m.poseAccumulator += dt;
+    if (m.poseAccumulator >= 0.05) {
+      m.model.pose({ clip: 'idle', t: m.time, time: m.time, seed: 43 });
+      m.poseAccumulator %= 0.05;
     }
-    managerTag.position.set(managerHome[0], managerHome[1] + 1.56, managerHome[2]);
+    managerTag.position.set(MANAGER_HOME[0], m.floor + 1.56, MANAGER_HOME[2]);
     managerTag.quaternion.copy(stage.camera.quaternion);
+  }
+
+  // The street door opens for anyone coming or going.
+  let doorAngle = 0;
+  function updateDoor(dt) {
+    let near = false;
+    const check = (x, z) => { if (Math.hypot(x - FRONT_DOOR.x, z - Z) < 1.9) near = true; };
+    for (const actor of customerActors.values()) check(actor.model.group.position.x, actor.model.group.position.z);
+    check(player.x, player.z);
+    doorAngle = easeOpacity(doorAngle, near ? 1.35 : 0, dt, 6);
+    doorLeaf.rotation.y = doorAngle;
+  }
+
+  // ——— the walls get out of the way ———
+  let wallMode = 'auto';
+  function updateWalls(dt) {
+    const camera = [stage.camera.position.x, stage.camera.position.z];
+    for (const w of wallGroups) {
+      const target = wallOpacity({ camera, center: STORE_CENTER, normal: w.normal, both: w.both, mode: wallMode });
+      w.opacity = easeOpacity(w.opacity, target, dt);
+      if (Math.abs(w.opacity - w.applied) < 1e-4) continue;
+      w.applied = w.opacity;
+      for (const m of w.mats.values()) m.opacity = (m.baseOpacity ?? 1) * w.opacity;
+      const solid = w.opacity > 0.55;
+      for (const mesh of w.meshes) if (mesh.castShadow !== solid && mesh.material.baseOpacity === undefined) mesh.castShadow = solid;
+    }
   }
 
   function update(state, dt, realTime = 0) {
     if (!state) return;
+    state.availableResidents = readyResidents;
     syncDisplays(state);
     syncCustomers(state, dt);
     updateStaff(state, dt);
     updateCats(activeFrameDelta(state, dt));
     updatePlayer(state, dt);
     updatePurchasingManager(state, dt);
-    stage.target.set(0, 0.55, 0);
-    // Slow, almost imperceptible neon / pendant movement keeps the room warm rather than static.
+    updateDoor(dt);
+    updateWalls(dt);
+    stage.target.set(world.focus?.[0] ?? 0, 0.5, world.focus?.[1] ?? 0.8);
     if (stage.lantern) stage.lantern.intensity = 1.1 + Math.sin(realTime * 0.8) * 0.04;
   }
 
-  onProgress('Setting up customer routes and cat patrols', 88);
-  // Pointer drag rotates the store camera; the management panel remains ordinary DOM UI.
+  // ——— camera: drag to orbit, wheel to zoom ———
   let dragging = null;
   host.addEventListener('pointerdown', (event) => {
     if (event.button !== 0) return;
@@ -912,15 +894,25 @@ export async function createBodegaWorld(host, onProgress = () => {}) {
     update(window.__bodegaState ?? null, dt, performance.now() / 1000);
   });
 
+  // The signage: a lit OPEN sign in the middle window.
+  const openSign = signPlane(scene, 'OPEN', -1.4, 2.5, Z - 0.1, 1.25, 0.48, { background: '#285542', foreground: '#eff1d6', accent: '#8fc27e', fontSize: 56, width: 256, height: 96 });
+
+  // ——— the rest of the neighborhood bakes in the background while the shop is open ———
+  const background = backgroundJobs();
+  for (const [name, detail] of background) {
+    if (!name.startsWith('resident:')) continue;
+    library.ready(name, detail).then(() => readyResidents.add(name.slice(9)));
+  }
+  if (typeof Worker === 'undefined') for (const r of RESIDENTS) readyResidents.add(r.id);
+  library.preload(background);
+
   const world = {
-    stage,
-    scene,
-    cats,
-    staffModels,
-    player,
-    purchasingManagerModel,
-    displayGroups,
-    update,
+    stage, scene, cats, staffModels, player, displayGroups, update, wallGroups,
+    get wallMode() { return wallMode; },
+    setWallMode(mode) { if (WALL_MODES.includes(mode)) wallMode = mode; return wallMode; },
+    cycleWallMode() { wallMode = WALL_MODES[(WALL_MODES.indexOf(wallMode) + 1) % WALL_MODES.length]; return wallMode; },
+    readyResidents,
+    focus: null,                      // [x, z] to aim the camera at; null for the middle of the shop
     setState(state) { window.__bodegaState = state; },
     setOpen(open) { openSign.material.color.set(open ? '#ffffff' : '#a0a0a0'); },
     dispose() { run?.(); clearPlayerKeys(); window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp); window.removeEventListener('blur', clearPlayerKeys); document.removeEventListener('visibilitychange', clearPlayerKeys); },

@@ -5,7 +5,7 @@ import {
   oldestShelfBatch, sellFromShelf, borrowCredit, repayCredit, advanceGame,
   beginDay, startNextDay, adjustPrice, PRODUCT_BY_ID, saveGameState, loadGameState,
   REVIEW_BANK, maybeLeaveReview, customerArrivalInterval, trafficLabel, reviewSummary,
-  PURCHASING_MANAGER, getStoreLevel, getStoreLevelProgress, hirePurchasingManager, setAutomaticPurchasing, activeFrameDelta,
+  RESIDENTS, RESIDENT_BY_ID, chooseResident, buildBasket, PURCHASING_MANAGER, getStoreLevel, getStoreLevelProgress, hirePurchasingManager, setAutomaticPurchasing, activeFrameDelta,
 } from '../src/sim.js';
 
 function prepareState() {
@@ -297,12 +297,14 @@ test('customers roll independent opinions of the cats when they enter the bodega
   advanceGame(delighted, 0.05);
   assert.equal(delighted.customers[0].catReaction, 'delighted');
   assert.equal(delighted.customers[0].catName, 'Blaze');
-  const annoyed = prepareState();
-  annoyed.random = () => 0.3;
-  annoyed.nextArrival = annoyed.minute + 0.01;
-  advanceGame(annoyed, 0.05);
-  assert.equal(annoyed.customers[0].catReaction, 'annoyed');
-  assert.ok(annoyed.customers[0].catName);
+  const middling = prepareState();
+  middling.random = () => 0.3;
+  middling.nextArrival = middling.minute + 0.01;
+  advanceGame(middling, 0.05);
+  const resident = RESIDENT_BY_ID[middling.customers[0].residentId];
+  // The same roll lands differently for a cat person and for someone who is not.
+  assert.equal(middling.customers[0].catReaction, 0.3 < 0.25 + resident.cats ? 'delighted' : 'annoyed');
+  assert.ok(middling.customers[0].catName);
 });
 
 test('cat encounters have a small direct effect on reputation and daily store stats', () => {
@@ -513,4 +515,136 @@ test('player position, store level and manager status survive saving and migrati
   assert.equal(restored.purchasingManagerHired, true);
   assert.equal(restored.automaticPurchasingEnabled, false);
   assert.equal(restored.dailyCosts.payroll, 44);
+});
+
+test('the resident cast is a varied neighborhood with valid habits', () => {
+  assert.ok(RESIDENTS.length >= 16);
+  assert.equal(new Set(RESIDENTS.map((r) => r.id)).size, RESIDENTS.length);
+  assert.ok(new Set(RESIDENTS.map((r) => r.character)).size >= 16, 'every resident is a different person from the engine cast');
+  assert.ok(new Set(RESIDENTS.map((r) => r.look.skin)).size >= 8, 'a range of skin tones');
+  assert.ok(new Set(RESIDENTS.map((r) => r.look.hair)).size >= 6, 'a range of hair colors');
+  assert.ok(Math.min(...RESIDENTS.map((r) => r.height)) < 1.3 && Math.max(...RESIDENTS.map((r) => r.height)) > 1.4, 'children, elders and grown-ups');
+  for (const r of RESIDENTS) {
+    assert.ok(r.favorites.length >= 3 && r.favorites.every((id) => PRODUCT_BY_ID[id]), `${r.id} favorites`);
+    assert.ok(r.thrift > 0 && r.lines >= 0 && r.lines <= 1 && r.peak[0] < r.peak[1], `${r.id} habits`);
+  }
+});
+
+test('residents buy what they like, never two of them are inside at once, and arrive when they usually do', () => {
+  const state = prepareState();
+  state.minute = 8 * 60;
+  const seen = new Map();
+  for (let i = 0; i < 300; i++) {
+    state.customers = [];
+    const customer = spawnForTest(state);
+    seen.set(customer.residentId, (seen.get(customer.residentId) ?? 0) + 1);
+    const resident = RESIDENT_BY_ID[customer.residentId];
+    assert.ok(customer.basket.length >= 2 && customer.basket.length <= 3);
+    assert.equal(new Set(customer.basket.map((l) => l.productId)).size, customer.basket.length);
+    assert.equal(customer.character, resident.character);
+  }
+  assert.ok(seen.size >= 14, `${seen.size} different residents in 300 visits`);
+  // Morning people are in at eight far more than the night-shift driver.
+  assert.ok((seen.get('walt') ?? 0) > (seen.get('sal') ?? 0));
+  const russo = RESIDENT_BY_ID.russo;
+  let favorite = 0, lines = 0;
+  const stream = prepareState();
+  for (let i = 0; i < 200; i++) {
+    for (const l of buildBasket(stream, russo)) { lines++; if (russo.favorites.includes(l.productId)) favorite++; }
+  }
+  assert.ok(favorite / lines > 0.38, `${favorite}/${lines} lines were favorites (chance alone is about 0.22)`);
+  const doubled = prepareState();
+  doubled.customers = RESIDENTS.slice(0, -1).map((r) => ({ residentId: r.id }));
+  assert.equal(chooseResident(doubled).id, RESIDENTS.at(-1).id);
+});
+
+function spawnForTest(state) {
+  state.nextArrival = state.minute + 0.01;
+  state.started = true; state.paused = false;
+  const before = state.customers.length;
+  advanceGame(state, 0.05);
+  return state.customers[before] ?? state.customers.at(-1);
+}
+
+test('shoppers want what is on their list even when the shelf is empty, so a bare shelf costs sales', () => {
+  const state = prepareState();
+  for (const p of PRODUCTS) { state.shelves[p.id] = []; state.stockroom[p.id] = []; }
+  state.random = (() => { let v = 11; return () => { v = (v * 16807) % 2147483647; return v / 2147483647; }; })();
+  state.minute = 8 * 60;
+  const c = spawnForTest(state);
+  assert.ok(c, 'a customer still comes in to an empty store');
+  assert.ok(c.basket.length >= 2);
+  advanceGame(state, 40);
+  assert.ok(state.dayStats.stockouts >= 1, 'their empty-shelf lines were recorded as stockouts');
+});
+
+test('a price past what a shopper will pay is put back, and the store hears about it', () => {
+  const state = prepareState();
+  state.nextArrival = 100000;
+  state.prices.milk = PRODUCT_BY_ID.milk.price * 2;
+  state.customers.push({ id: 5001, name: 'Ari', thrift: 0.3, basket: [{ productId: 'milk', qty: 1 }], phase: 'browsing', phaseTotal: 0.04, phaseTimer: 0.04, result: null, bought: 0, spend: 0 });
+  const stockBefore = state.shelves.milk.reduce((n, b) => n + b.qty, 0);
+  advanceGame(state, 0.05);
+  assert.equal(state.customers[0].result, 'priced-out');
+  assert.equal(state.shelves.milk.reduce((n, b) => n + b.qty, 0), stockBefore);
+  assert.equal(state.dayStats.pricedOut, 1);
+  const fair = prepareState();
+  fair.nextArrival = 100000;
+  fair.customers.push({ id: 5002, name: 'Ari', thrift: 0.3, basket: [{ productId: 'milk', qty: 1 }], phase: 'browsing', phaseTotal: 0.04, phaseTimer: 0.04, result: null, bought: 0, spend: 0 });
+  advanceGame(fair, 0.05);
+  assert.equal(fair.customers[0].result, 'sold');
+});
+
+test('credit interest compounds into the balance and is not also taken from the till', () => {
+  const state = prepareState();
+  beginDay(state);
+  borrowCredit(state, 200);
+  state.nextArrival = 100000;
+  const cashBefore = state.cash;
+  const { rent, payroll, utilities } = state.dailyCosts;
+  state.minute = 20 * 60 + 59;
+  advanceGame(state, 2);
+  assert.equal(state.debt, 202.5);
+  assert.equal(state.cash, Math.round((cashBefore - rent - payroll - utilities) * 100) / 100);
+  assert.equal(state.lastDaySummary.expenses.interest, 2.5);
+});
+
+test('shoppers still inside at closing time finish their shop instead of vanishing', () => {
+  const state = prepareState();
+  beginDay(state);
+  state.nextArrival = 100000;
+  state.minute = 20 * 60 + 58;
+  state.customers.push({ id: 6001, name: 'Kenji', basket: [{ productId: 'rice', qty: 1 }], phase: 'browsing', phaseTotal: 20, phaseTimer: 15, result: null, bought: 0, spend: 0 });
+  advanceGame(state, 3);
+  assert.equal(state.dayEnded, true);
+  assert.equal(state.dayStats.unitsSold, 1);
+  assert.ok(state.dayStats.revenue > 0);
+  assert.equal(state.customers.length, 0);
+});
+
+test('nobody is let in after last call', () => {
+  const state = prepareState();
+  beginDay(state);
+  state.minute = 20 * 60 + 40;
+  state.nextArrival = state.minute + 0.01;
+  advanceGame(state, 0.05);
+  assert.equal(state.customers.length, 0);
+});
+
+test('repaying credit works to the cent', () => {
+  const state = prepareState();
+  state.debt = 100.01;
+  state.cash = 500;
+  const result = repayCredit(state, 100.01);
+  assert.equal(result.amount, 100.01);
+  assert.equal(state.debt, 0);
+});
+
+test('a delighted cat lover who found nothing does not post a cat rave', () => {
+  const state = prepareState();
+  state.random = () => 0;
+  const review = maybeLeaveReview(state, { id: 7001, name: 'Zoe', result: 'stockout', demandId: 'milk', stockoutProductId: 'milk', catReaction: 'delighted', catName: 'Jinx' });
+  assert.ok(review);
+  assert.equal(review.outcome, 'stockout');
+  assert.ok(review.rating <= 3);
 });

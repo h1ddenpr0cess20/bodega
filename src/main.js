@@ -361,7 +361,7 @@ function financePanel() {
     </div>
     <div class="panel-section">
       <div class="section-heading"><div><div class="eyebrow">THE COST OF OPENING</div><h3>Daily overhead</h3></div></div>
-      <div class="cost-list"><div><span>Rent</span><b>${money(state.dailyCosts.rent)}</b></div><div><span>Payroll · 2 staff</span><b>${money(state.dailyCosts.payroll)}</b></div><div><span>Utilities & refrigeration</span><b>${money(state.dailyCosts.utilities)}</b></div><div><span>Interest at today's balance</span><b>${money(interest)}</b></div><div class="cost-total"><span>Expected daily overhead</span><b>${money(state.dailyCosts.rent + state.dailyCosts.payroll + state.dailyCosts.utilities + interest)}</b></div></div>
+      <div class="cost-list"><div><span>Rent</span><b>${money(state.dailyCosts.rent)}</b></div><div><span>Payroll · 2 staff</span><b>${money(state.dailyCosts.payroll)}</b></div><div><span>Utilities & refrigeration</span><b>${money(state.dailyCosts.utilities)}</b></div><div><span>Interest (added to balance)</span><b>${money(interest)}</b></div><div class="cost-total"><span>Expected daily overhead</span><b>${money(state.dailyCosts.rent + state.dailyCosts.payroll + state.dailyCosts.utilities + interest)}</b></div></div>
     </div>`;
 }
 
@@ -571,6 +571,11 @@ $('#open-store').addEventListener('click', () => {
 $('#pause-toggle').addEventListener('click', () => {
   togglePause(state);
   updateHeader();
+});
+
+const WALL_LABEL = { auto: 'AUTO', solid: 'SOLID', ghost: 'GHOST' };
+$('#wall-toggle').addEventListener('click', () => {
+  $('#wall-toggle').textContent = `WALLS · ${WALL_LABEL[world.cycleWallMode()]}`;
 });
 
 $('#sound-toggle').addEventListener('click', () => {
