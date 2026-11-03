@@ -113,3 +113,16 @@ test('a fading wall eases toward its target at the same pace at any frame rate',
   for (let i = 0; i < 200; i++) a = easeOpacity(a, 1, 1 / 60);
   assert.equal(a, 1);
 });
+
+test('the tallest thing on each shelf clears the fixture above it', async () => {
+  const { GONDOLA, LEVELS, COOLERS, COOLER_LEVELS, SLOTS } = await import('../src/layout.js');
+  // Product heights as sculpted (tiles): the engine's grocery props; the tallest on a gondola is the cereal box, in a cooler the cola.
+  const heights = { cereal: 0.42, pasta: 0.34, rice: 0.246, beans: 0.158, coffee: 0.286, soda: 0.468, water: 0.354, milk: 0.282, pizza: 0.38 };
+  for (const [id, h] of Object.entries(heights)) {
+    const slot = SLOTS[id];
+    const ceiling = slot.kind === 'gondola' ? GONDOLA.height - 0.1 : COOLERS.height;
+    assert.ok(slot.y + h < ceiling, `${id} (${(slot.y + h).toFixed(2)}) reaches the top of its fixture (${ceiling.toFixed(2)})`);
+  }
+  assert.ok(LEVELS.at(-1) + heights.cereal < GONDOLA.height - 0.1);
+  assert.ok(COOLER_LEVELS.at(-1) + heights.soda < COOLERS.height);
+});

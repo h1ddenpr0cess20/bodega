@@ -3,6 +3,7 @@ import { createStage } from 'madness-engine/stage';
 import { createView } from 'madness-engine/view';
 import { createModel, createStatic } from 'madness-engine/models/model';
 import { createBakeLibrary } from 'madness-engine/models/bake';
+import { bake as legacyBake } from 'madness-engine/models/legacy-bake';
 import { floorTexture, wallTexture } from 'madness-engine/textures/venue';
 import { paintRoom } from 'madness-engine/textures/rooms/town';
 import { paintSky } from 'madness-engine/textures/skies/haze';
@@ -15,6 +16,7 @@ import {
 } from './layout.js';
 import { wallOpacity, easeOpacity, WALL_MODES } from './walls.js';
 import { CAST, DETAIL, loadingJobs, backgroundJobs, FIRST_WAVE } from './cast.js';
+import { STREETSCAPE, STREET_MODELS } from './streetscape.js';
 
 const PLAYER_SPEED = 2.25;
 const HUMAN_HEIGHT = 1.42;
@@ -142,19 +144,23 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
     return mesh;
   }
 
-  // Brick that keeps its scale on any size of wall: the UVs follow the box's dimensions.
+  // Brick that keeps its scale and its alignment on any wall: the UVs follow world position.
   const wallTex = wallTexture(GFX, 'brick');
   const wallMap = new GFX.CanvasTexture(wallTex.map.image);
   wallMap.colorSpace = GFX.SRGBColorSpace; wallMap.wrapS = wallMap.wrapT = GFX.RepeatWrapping;
   const wallBump = new GFX.CanvasTexture(wallTex.bump.image);
   wallBump.wrapS = wallBump.wrapT = GFX.RepeatWrapping;
-  function scaleBrickUV(geometry, w, h, d) {
-    const uv = geometry.attributes.uv;
-    if (!uv) return;
-    const faces = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];   // +x −x +y −y +z −z
+  function alignBrickUV(mesh) {
+    const g = mesh.geometry, pos = g.attributes.position, nor = g.attributes.normal, uv = g.attributes.uv;
+    if (!uv || !pos || !nor) return;
+    const { x: ox, y: oy, z: oz } = mesh.position;
     for (let i = 0; i < uv.count; i++) {
-      const [fw, fh] = faces[Math.min(5, Math.floor(i / 4))];
-      uv.setXY(i, uv.getX(i) * fw / BRICK_TILE, uv.getY(i) * fh / BRICK_TILE);
+      const x = pos.getX(i) + ox, y = pos.getY(i) + oy, z = pos.getZ(i) + oz;
+      // The pattern follows the world, not the box: along the wall and up it (or across a top face), so every wall,
+      // partition and base course shares one pattern and their courses and joints line up.
+      if (Math.abs(nor.getY(i)) > 0.5) uv.setXY(i, x / BRICK_TILE, z / BRICK_TILE);
+      else if (Math.abs(nor.getX(i)) > 0.5) uv.setXY(i, z / BRICK_TILE, y / BRICK_TILE);
+      else uv.setXY(i, x / BRICK_TILE, y / BRICK_TILE);
     }
     uv.needsUpdate = true;
   }
@@ -176,8 +182,8 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
     w.brick = (x, y, z, bw, bh, bd, tint = '#a8a092') => {
       const m = material(`brick${tint}`, () => new GFX.MeshStandardMaterial({ color: tint, map: wallMap, bumpMap: wallBump, bumpScale: 0.09, roughness: 0.9 }));
       const mesh = new GFX.Mesh(new GFX.BoxGeometry(bw, bh, bd), m);
-      scaleBrickUV(mesh.geometry, bw, bh, bd);
       mesh.position.set(x, y, z); mesh.castShadow = true; mesh.receiveShadow = true;
+      alignBrickUV(mesh);
       group.add(mesh); w.meshes.push(mesh);
       return mesh;
     };
@@ -244,7 +250,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   const plinth = new GFX.Group(); scene.add(plinth);
   const plinthMat = new GFX.MeshStandardMaterial({ color: '#8f8576', map: wallMap, bumpMap: wallBump, bumpScale: 0.09, roughness: 0.9 });
   // The plinth stands 3 cm proud of the wall on each side, so its faces are never in the wall's plane.
-  const plinthBox = (x, z, bw, bd) => { const mesh = new GFX.Mesh(new GFX.BoxGeometry(bw, 0.34, bd), plinthMat); scaleBrickUV(mesh.geometry, bw, 0.34, bd); mesh.position.set(x, 0.17, z); mesh.castShadow = true; mesh.receiveShadow = true; plinth.add(mesh); };
+  const plinthBox = (x, z, bw, bd) => { const mesh = new GFX.Mesh(new GFX.BoxGeometry(bw, 0.34, bd), plinthMat); mesh.position.set(x, 0.17, z); alignBrickUV(mesh); mesh.castShadow = true; mesh.receiveShadow = true; plinth.add(mesh); };
   const PL = 0.06;
   plinthBox(0, -(Z + T / 2 - 0.15), W * 2 + T * 2 + PL, T + PL);
   plinthBox(-(W + T / 2 - 0.15), 0, T + PL, Z * 2);
@@ -349,22 +355,18 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   }
   { const light = new GFX.PointLight('#ffe6b8', 8, 6, 1.6); light.position.set(-6.7, 2.6, -4.5); scene.add(light); }
 
-  // ——— the street out front ———
-  const lamp = (x, z) => {
-    cylinder(scene, x, 2.0, z, 0.06, 0.09, 4.0, mats.steelDark, 10);
-    box(scene, x, 4.0, z + 0.4, 0.12, 0.1, 0.9, mats.steelDark);
-    box(scene, x, 3.92, z + 0.75, 0.35, 0.08, 0.2, mats.bulb, { castShadow: false });
-  };
-  lamp(-3.4, 9.9); lamp(7.6, 9.9);
-  for (const x of [dl - 0.55, dr + 0.55]) {                                     // planters flanking the door
-    box(scene, x, 0.3, Z + 0.7, 0.8, 0.6, 0.6, mats.woodDark);
-    sphere(scene, x, 0.75, Z + 0.7, 0.4, mats.leaf, [1, 0.8, 0.9]);
+  // ——— the street out front and the alley behind: the engine's own street furniture ———
+  const streetBakes = new Map();
+  for (const placement of STREETSCAPE) {
+    if (!streetBakes.has(placement.model)) streetBakes.set(placement.model, legacyBake(GFX, STREET_MODELS[placement.model]));
+    const { geometry, materials } = streetBakes.get(placement.model);
+    const mesh = new GFX.Mesh(geometry, materials);
+    mesh.position.set(placement.x, 0, placement.z);
+    mesh.rotation.y = placement.yaw ?? 0;
+    mesh.scale.setScalar(placement.scale ?? 1);
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    scene.add(mesh);
   }
-  cylinder(scene, 6.4, 0.38, 9.7, 0.14, 0.17, 0.76, std('#b8352b', { roughness: 0.5 }), 12);
-  sphere(scene, 6.4, 0.82, 9.7, 0.15, std('#b8352b', { roughness: 0.5 }));
-  cylinder(scene, -7.6, 0.45, 9.2, 0.3, 0.26, 0.9, mats.steelDark, 14);
-  box(scene, -7.6, 0.92, 9.2, 0.66, 0.06, 0.66, mats.metal);
-  box(scene, 9.2, 0.55, -9.2, 2.6, 1.1, 1.3, std('#3d5a47', { roughness: 0.7 }));                      // the dumpster in the alley
 
   // ——— shelving and fixtures ———
   onProgress('Setting up shelves and the checkout', 70);
@@ -487,7 +489,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
     }
     // The shelf-edge tag for each line.
     const tag = new GFX.Mesh(new GFX.PlaneGeometry(Math.min(0.9, slot.width * 0.8), 0.22), new GFX.MeshBasicMaterial({ map: labelTexture(product.short), side: GFX.FrontSide }));
-    tag.position.set(0, slot.kind === 'bin' ? -0.1 : -0.14, slot.depth / 2 + (slot.kind === 'bin' ? 0.58 : 0.03));
+    tag.position.set(0, slot.kind === 'bin' ? -0.1 : -0.14, slot.depth / 2 + (slot.kind === 'bin' ? 0.58 : slot.kind === 'gondola' ? 0.06 : 0.03));   // a gondola's tags hang clear of its base, not in its plane
     if (slot.kind === 'bin') tag.rotation.x = -0.2;
     group.add(tag);
     shelfLabels.set(product.id, tag);
