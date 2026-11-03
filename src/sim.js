@@ -83,6 +83,14 @@ export const REVIEW_BANK = Object.freeze({
     'Got a few things and skipped the rest. I will give them another try when the shelves are fuller.',
     'The store has character, but the shopping list did not quite survive the trip. No {{product}} today.',
   ],
+  pricey: [
+    'Prices on the {{product}} are higher than the supermarket down the road. I put it back and walked out.',
+    'I like the shop, but not at that price for {{product}}. A little fairness goes a long way.',
+    'Wanted {{product}}, saw the tag and left it on the shelf. Lower the price and I will be back.',
+    'Convenient, sure, but the {{product}} was way over what it should cost.',
+    'The staff are lovely. The price of the {{product}} is not.',
+    'Not paying that much for {{product}}. Ended up going elsewhere.',
+  ],
   five: [
     'My favorite little stop on the block. Lou knows the regulars and the checkout is always easy.',
     'Fresh produce, cold drinks, and friendly faces. Exactly what a neighborhood shop should be.',
@@ -155,6 +163,8 @@ const STARTING_CASH = 1250;
 const CREDIT_LIMIT = 1800;
 const DAY_OPEN = 7 * 60;
 const DAY_CLOSE = 21 * 60;
+/** The last shopper is let in this long before closing, so everyone is served before the shutters come down. */
+const LAST_CALL = DAY_CLOSE - 30;
 const EXPIRY_BUFFER = 1e-8;
 const STAFF_PAYROLL = STAFF.reduce((n, s) => n + s.wage, 0);
 const STORE_LEVEL_XP = 250;
@@ -188,7 +198,7 @@ function createRng(seed, restore = false) {
 
 /** A JSON-safe snapshot for local saves. The random stream resumes exactly where it left off. */
 export function saveGameState(state) {
-  const { random, ...serializable } = state;
+  const { random, availableResidents, ...serializable } = state; // eslint-disable-line no-unused-vars
   return JSON.stringify({ ...serializable, rngState: random.getState() });
 }
 
@@ -212,7 +222,7 @@ export function loadGameState(serialized) {
     state.purchasingManagerHired ??= false;
     state.automaticPurchasingEnabled ??= true;
     state.nextAutoOrderAt ??= state.minute + (state.purchasingManagerHired ? PURCHASING_MANAGER.firstReviewDelay : 35);
-    state.playerPosition ??= { x: 0.35, z: 5.15 };
+    state.playerPosition ??= { x: 4.5, z: 5.2 };
     state.dailyCosts.payroll = STAFF_PAYROLL + (state.purchasingManagerHired ? PURCHASING_MANAGER.wage : 0);
     // Give existing saves a one-time, prepaid opening reserve so the floor lead
     // can demonstrate automatic replenishment immediately after this update.
@@ -265,7 +275,7 @@ export function createGameState(seed = 20261031) {
     purchasingManagerHired: false,
     automaticPurchasingEnabled: true,
     nextAutoOrderAt: DAY_OPEN + 35,
-    playerPosition: { x: 0.35, z: 5.15 },
+    playerPosition: { x: 4.5, z: 5.2 },
     started: false,
     paused: true,
     dayEnded: false,
@@ -424,58 +434,111 @@ export function pullExpired(state, productId = null) {
   return { removed, loss };
 }
 
-function weightedProduct(state, excluded = new Set()) {
-  const candidates = PRODUCTS.filter((p) => !excluded.has(p.id));
-  const stocked = candidates.filter((p) => shelfQuantity(state, p.id) > 0);
-  const pool = stocked.length ? stocked : candidates;
-  const sum = pool.reduce((n, p) => n + p.demand, 0);
+/**
+ * The neighborhood's regulars. Each is a person from the engine's cast, dressed
+ * in a skin tone, hair and eyes of their own (`look` goes to `character.variant`
+ * in the world), with habits that shape the store's day: what they come for
+ * (`favorites`), how much a price rise bothers them (`thrift`: the markup over
+ * the usual price they will pay), how big a shop they make (`lines`: the chance
+ * of a third basket line), when they tend to come in (`peak`: hours of the day),
+ * and how they feel about the cats (`cats`: a nudge to the odds of being charmed).
+ */
+export const RESIDENTS = [
+  { id: 'maya', name: 'Maya', full: 'Maya Okafor', character: 'tourist', tag: 'weekend visitor', look: { skin: '#6f4120', hair: '#0e0a08', eyes: '#2a1a10' }, height: 1.38, favorites: ['water', 'bananas', 'coffee', 'cereal'], thrift: 0.35, lines: 0.28, peak: [10, 17], cats: 0 },
+  { id: 'rico', name: 'Rico', full: 'Rico Alvarez', character: 'punk', tag: 'regular', look: { skin: '#c68642', hair: '#0e0a08', eyes: '#4a2e18' }, height: 1.4, favorites: ['soda', 'pizza', 'icecream'], thrift: 0.3, lines: 0.2, peak: [15, 21], cats: 0.05 },
+  { id: 'sunny', name: 'Sunny', full: 'Sunny Park', character: 'hippie', tag: 'produce fan', look: { skin: '#f0d0c0', hair: '#241810', eyes: '#2a1a10' }, height: 1.36, favorites: ['apples', 'tomatoes', 'lettuce', 'rice', 'beans'], thrift: 0.4, lines: 0.5, peak: [8, 13], cats: 0.12 },
+  { id: 'theo', name: 'Theo', full: 'Theo Laurent', character: 'artist', tag: 'local artist', look: { skin: '#8d5524', hair: '#0e0a08', eyes: '#2a1a10' }, height: 1.42, favorites: ['coffee', 'bread', 'cheese', 'butter'], thrift: 0.3, lines: 0.28, peak: [9, 15], cats: 0.05 },
+  { id: 'ari', name: 'Ari', full: 'Ari Cohen', character: 'hipster', tag: 'coffee regular', look: { skin: '#f6dcc8', hair: '#8a3a1e', eyes: '#5a86b0' }, height: 1.44, favorites: ['coffee', 'eggs', 'yogurt', 'bread'], thrift: 0.55, lines: 0.28, peak: [7, 10], cats: 0.1 },
+  { id: 'sal', name: 'Sal', full: 'Sal Haddad', character: 'cabbie', tag: 'night-shift driver', look: { skin: '#d19a6a', hair: '#241810', eyes: '#4a2e18' }, height: 1.42, favorites: ['coffee', 'water', 'bananas', 'deli'], thrift: 0.3, lines: 0.2, peak: [17, 21], cats: -0.05 },
+  { id: 'russo', name: 'Mrs. Russo', full: 'Rosa Russo', character: 'nonna', tag: 'neighbor', look: { skin: '#f0d0c0', hair: '#e8e6e0', eyes: '#6a7a8a' }, height: 1.24, favorites: ['pasta', 'tomatoes', 'cheese', 'bread', 'eggs'], thrift: 0.2, lines: 0.6, peak: [8, 12], cats: 0.15 },
+  { id: 'dwayne', name: 'Dwayne', full: 'Dwayne Brooks', character: 'beerguy', tag: 'after-work regular', look: { skin: '#533018', hair: '#0e0a08', eyes: '#2a1a10' }, height: 1.46, favorites: ['soda', 'pizza', 'deli', 'chicken'], thrift: 0.35, lines: 0.35, peak: [16, 21], cats: -0.1 },
+  { id: 'kenji', name: 'Kenji', full: 'Kenji Watanabe', character: 'salaryman', tag: 'commuter', look: { skin: '#f0d0c0', hair: '#0e0a08', eyes: '#2a1a10' }, height: 1.4, favorites: ['coffee', 'deli', 'bread', 'water', 'yogurt'], thrift: 0.6, lines: 0.28, peak: [7, 9], cats: 0 },
+  { id: 'marco', name: 'Marco', full: 'Marco Bianchi', character: 'pizzaiolo', tag: 'late lunch', look: { skin: '#e9b48f', hair: '#3a2414', eyes: '#4a2e18' }, height: 1.4, favorites: ['cheese', 'tomatoes', 'pasta', 'beef'], thrift: 0.3, lines: 0.4, peak: [13, 16], cats: 0.05 },
+  { id: 'jules', name: 'Jules', full: 'Jules Moreno', character: 'skater', tag: 'local kid', look: { skin: '#e0a97c', hair: '#5a3a1e', eyes: '#6a4a22' }, height: 1.2, favorites: ['soda', 'pizza', 'icecream', 'cereal'], thrift: 0.2, lines: 0.15, peak: [15, 19], cats: 0.18 },
+  { id: 'priya', name: 'Priya', full: 'Priya Nair', character: 'shopper', tag: 'weekly shop', look: { skin: '#a9703f', hair: '#0e0a08', eyes: '#2a1a10' }, height: 1.4, favorites: ['rice', 'beans', 'tomatoes', 'yogurt', 'lettuce', 'chicken'], thrift: 0.45, lines: 0.75, peak: [10, 15], cats: 0.05 },
+  { id: 'walt', name: 'Walt', full: 'Walter Jenkins', character: 'oldtimer', tag: 'been coming here forever', look: { skin: '#3b2314', hair: '#9a9a9a', eyes: '#4a2e18' }, height: 1.34, favorites: ['bread', 'milk', 'eggs', 'coffee', 'butter'], thrift: 0.15, lines: 0.3, peak: [7, 11], cats: 0.1 },
+  { id: 'luis', name: 'Luis', full: 'Luis Ortega', character: 'mailcarrier', tag: 'mail carrier', look: { skin: '#c68642', hair: '#241810', eyes: '#4a2e18' }, height: 1.42, favorites: ['water', 'bananas', 'deli', 'bread'], thrift: 0.35, lines: 0.2, peak: [11, 14], cats: 0.1 },
+  { id: 'aisha', name: 'Aisha', full: 'Aisha Rahman', character: 'crossingguard', tag: 'school crossing guard', look: { skin: '#a9703f', hair: '#241810', eyes: '#3a2414' }, height: 1.36, favorites: ['milk', 'eggs', 'cereal', 'bananas', 'apples'], thrift: 0.3, lines: 0.5, peak: [8, 9.5], cats: 0.1 },
+  { id: 'tomasz', name: 'Tomasz', full: 'Tomasz Kowalski', character: 'engineer', tag: 'site engineer', look: { skin: '#f6dcc8', hair: '#c8a45a', eyes: '#3a5a8a' }, height: 1.46, favorites: ['coffee', 'soda', 'deli', 'bread'], thrift: 0.4, lines: 0.3, peak: [7, 9], cats: -0.05 },
+  { id: 'camille', name: 'Camille', full: 'Camille Dubois', character: 'barista', tag: 'barista off shift', look: { skin: '#533018', hair: '#0e0a08', eyes: '#2a1a10' }, height: 1.38, favorites: ['coffee', 'yogurt', 'apples', 'lettuce', 'bread'], thrift: 0.35, lines: 0.35, peak: [14, 18], cats: 0.15 },
+  { id: 'zoe', name: 'Zoe', full: 'Zoe Tran', character: 'influencer', tag: 'wellness influencer', look: { skin: '#f0d0c0', hair: '#0e0a08', eyes: '#2a1a10' }, height: 1.4, favorites: ['yogurt', 'apples', 'water', 'lettuce', 'coffee'], thrift: 0.8, lines: 0.3, peak: [11, 17], cats: 0.2 },
+  { id: 'dmitri', name: 'Dmitri', full: 'Dmitri Volkov', character: 'foreman', tag: 'warehouse foreman', look: { skin: '#f6dcc8', hair: '#7a5230', eyes: '#6a6a2a' }, height: 1.46, favorites: ['beef', 'potatoes', 'eggs', 'bread'], thrift: 0.25, lines: 0.3, peak: [16, 20], cats: -0.1 },
+];
+export const RESIDENT_BY_ID = Object.fromEntries(RESIDENTS.map((r) => [r.id, r]));
+
+/** Who walks in next: anyone not already in the store, regulars leaning toward their usual hours. */
+export function chooseResident(state) {
+  const inside = new Set(state.customers.map((c) => c.residentId));
+  const hour = state.minute / 60;
+  // `availableResidents` (a Set of ids, set by the world as their models finish baking) is not saved.
+  const ready = state.availableResidents?.size ? RESIDENTS.filter((r) => state.availableResidents.has(r.id)) : RESIDENTS;
+  const pool = ready.filter((r) => !inside.has(r.id));
+  const weights = pool.map((r) => (hour >= r.peak[0] && hour < r.peak[1] ? 3 : 1));
+  let roll = state.random() * weights.reduce((n, w) => n + w, 0);
+  for (let i = 0; i < pool.length; i++) { roll -= weights[i]; if (roll <= 0) return pool[i]; }
+  return pool[pool.length - 1] ?? ready[0] ?? RESIDENTS[0];
+}
+
+const NO_FAVORITES = new Set();
+
+/**
+ * A line for the basket. Shoppers come with a list, so what they want does not
+ * depend on what is on the shelf: an empty shelf is a missed sale, not a hidden
+ * one. A resident's favorites weigh three times their usual demand.
+ */
+function weightedProduct(state, excluded = new Set(), favorites = NO_FAVORITES) {
+  const pool = PRODUCTS.filter((p) => !excluded.has(p.id));
+  const weight = (p) => p.demand * (favorites.has(p.id) ? 3 : 1);
+  const sum = pool.reduce((n, p) => n + weight(p), 0);
   let roll = state.random() * sum;
-  for (const p of pool) { roll -= p.demand; if (roll <= 0) return p; }
+  for (const p of pool) { roll -= weight(p); if (roll <= 0) return p; }
   return pool[pool.length - 1];
 }
 
-function chooseCustomerLook(state) {
-  const looks = [
-    ['tourist', 'Maya', 'weekend visitor'], ['punk', 'Rico', 'regular'], ['hippie', 'Sunny', 'produce fan'],
-    ['artist', 'Theo', 'local artist'], ['hipster', 'Ari', 'coffee regular'], ['cabbie', 'Sal', 'night-shift driver'],
-    ['nonna', 'Mrs. Russo', 'neighbour'], ['beerguy', 'Dwayne', 'after-work regular'], ['salaryman', 'Kenji', 'commuter'],
-    ['pizzaiolo', 'Marco', 'late lunch'], ['skater', 'Jules', 'local kid'],
-  ];
-  return looks[Math.floor(state.random() * looks.length)];
-}
-
 /** Every shopper independently forms an opinion about the resident cats. */
-function rollCatEncounter(state) {
+function rollCatEncounter(state, affinity = 0) {
   const roll = state.random();
   const cat = CAT_ROSTER[Math.floor(state.random() * CAT_ROSTER.length)];
+  // Cat people are charmed more often and bothered less; the rest the other way about.
+  const charmed = 0.25 + affinity, bothered = charmed + 0.2 - affinity * 0.5;
   return {
-    catReaction: roll < 0.25 ? 'delighted' : roll < 0.45 ? 'annoyed' : 'indifferent',
+    catReaction: roll < charmed ? 'delighted' : roll < bothered ? 'annoyed' : 'indifferent',
     catName: cat.name,
     catId: cat.id,
   };
 }
 
+/** What a resident comes in for: two or three lines, leaning toward their favorites. */
+export function buildBasket(state, resident) {
+  const favorites = new Set(resident.favorites);
+  const lineCount = state.random() < resident.lines ? 3 : 2;
+  const basket = [];
+  const picked = new Set();
+  while (basket.length < lineCount) {
+    const product = weightedProduct(state, picked, favorites);
+    picked.add(product.id);
+    basket.push({ productId: product.id, qty: 1 + Math.floor(state.random() * 2) });
+  }
+  return basket;
+}
+
 function spawnCustomer(state) {
   if (state.customers.length >= 4) return null;
-  const [character, name, tag] = chooseCustomerLook(state);
-  const demand = weightedProduct(state);
-  const lineCount = state.random() < 0.72 ? 2 : 3;
-  const basket = [{ productId: demand.id, qty: 1 + Math.floor(state.random() * 2) }];
-  const picked = new Set([demand.id]);
-  while (basket.length < lineCount) {
-    const next = weightedProduct(state, picked);
-    if (!next) break;
-    picked.add(next.id);
-    basket.push({ productId: next.id, qty: 1 + Math.floor(state.random() * 2) });
-  }
-  const catEncounter = rollCatEncounter(state);
+  const resident = chooseResident(state);
+  const basket = buildBasket(state, resident);
+  const catEncounter = rollCatEncounter(state, resident.cats);
   // Shoppers spend meaningful time walking the aisles and comparing their 2–3 basket lines.
   const browseTime = 12 + state.random() * 5 + basket.length * 1.4 + (catEncounter.catReaction === 'delighted' ? 1.2 : catEncounter.catReaction === 'annoyed' ? -0.7 : 0);
   const customer = {
     id: ++state.customerSequence,
-    character, name, tag,
+    residentId: resident.id,
+    character: resident.character,
+    name: resident.name,
+    reviewName: `${resident.full.split(' ')[0][0]}. ${resident.full.split(' ').slice(-1)[0]}`,
+    tag: resident.tag,
+    thrift: resident.thrift,
     ...catEncounter,
-    demandId: demand.id,
+    demandId: basket[0].productId,
     basket,
     phase: 'browsing',
     phaseTotal: browseTime,
@@ -487,7 +550,7 @@ function spawnCustomer(state) {
   state.customers.push(customer);
   state.dayStats.customers += 1;
   state.lifetime.customers += 1;
-  pushEvent(state, 'customer', `${name} came in.`, `${tag} · ${basket.length} lines in the basket`);
+  pushEvent(state, 'customer', `${resident.name} came in.`, `${resident.tag} · ${basket.length} lines in the basket`);
   return customer;
 }
 
@@ -559,10 +622,18 @@ function awardStoreExperience(state, amount) {
 
 function checkoutCustomer(state, customer) {
   const basket = customer.basket ?? [{ productId: customer.demandId, qty: customer.basketUnits ?? 1 }];
-  let totalSpend = 0, totalBought = 0, hadExpired = false, hadStockout = false;
+  let totalSpend = 0, totalBought = 0, hadExpired = false, hadStockout = false, pricedOut = 0;
   for (const line of basket) {
     const product = PRODUCT_BY_ID[line.productId];
     if (!product) continue;
+    // A shopper puts a line back if the price is past what they will pay for it.
+    if (state.prices[product.id] > product.price * (1 + (customer.thrift ?? 0.45)) + 1e-9) {
+      pricedOut += 1;
+      state.dayStats.pricedOut = (state.dayStats.pricedOut ?? 0) + 1;
+      state.reputation = Math.max(0, state.reputation - 0.1);
+      pushEvent(state, 'warning', `${customer.name} put back the ${product.short.toLowerCase()}.`, `${money(state.prices[product.id])} was more than they would pay.`);
+      continue;
+    }
     const result = sellFromShelf(state, product.id, line.qty);
     if (result.ok) {
       totalBought += result.qty;
@@ -584,7 +655,7 @@ function checkoutCustomer(state, customer) {
   }
   customer.bought = totalBought;
   customer.spend = Math.round(totalSpend * 100) / 100;
-  customer.result = hadExpired ? 'expired' : hadStockout ? (totalBought ? 'partial' : 'stockout') : 'sold';
+  customer.result = hadExpired ? 'expired' : hadStockout ? (totalBought ? 'partial' : 'stockout') : pricedOut && !totalBought ? 'priced-out' : 'sold';
   if (totalBought) {
     state.reputation = Math.min(100, state.reputation + 0.12);
     pushEvent(state, 'sale', `${customer.name} checked out.`, `${totalBought} units · ${money(customer.spend)} · ${basket.length} basket lines`);
@@ -622,10 +693,12 @@ export function maybeLeaveReview(state, customer) {
   if (customer.reviewLeft) return null;
   const outcome = customer.result ?? 'sold';
   const catReaction = customer.catReaction ?? 'indifferent';
-  const catReview = outcome !== 'expired' && catReaction !== 'indifferent';
+  // A cat rave needs a happy visit; a cat grumble needs a visit that got as far as the till.
+  const catReview = (catReaction === 'delighted' && outcome === 'sold')
+    || (catReaction === 'annoyed' && (outcome === 'sold' || outcome === 'partial'));
   const chance = outcome === 'expired' ? 0.9
     : catReview ? (catReaction === 'annoyed' ? 0.48 : 0.34)
-      : outcome === 'stockout' ? 0.34
+      : outcome === 'stockout' || outcome === 'priced-out' ? 0.34
         : outcome === 'partial' ? 0.28 : 0.11;
   if (state.random() >= chance) return null;
 
@@ -641,6 +714,9 @@ export function maybeLeaveReview(state, customer) {
     rating = state.random() < 0.72 ? 5 : 4;
     bank = REVIEW_BANK.catLoved;
     reviewOutcome = 'cat-loved';
+  } else if (outcome === 'priced-out') {
+    rating = state.random() < 0.5 ? 2 : 3;
+    bank = REVIEW_BANK.pricey;
   } else if (outcome === 'stockout') {
     rating = state.random() < 0.58 ? 2 : 3;
     bank = REVIEW_BANK.stockout;
@@ -655,7 +731,7 @@ export function maybeLeaveReview(state, customer) {
   const text = pickReviewText(state, bank, product, customer.catName);
   const review = {
     id: ++state.reviewSequence,
-    name: customer.name,
+    name: customer.reviewName ?? customer.name,
     rating,
     text,
     day: state.day,
@@ -697,11 +773,22 @@ export function reviewSummary(state) {
   return { rating: Math.round(rating * 10) / 10, count: reviews.length };
 }
 
+/** Anyone still in the store when the shutters come down finishes their shop first: their sale and their opinion count. */
+function finishCustomersAtClose(state) {
+  for (const customer of state.customers) {
+    if (customer.phase === 'browsing') checkoutCustomer(state, customer);
+    maybeLeaveReview(state, customer);
+  }
+  state.customers = [];
+}
+
 function endDay(state) {
   const costs = state.dailyCosts;
   const interest = Math.round(state.debt * state.creditRate * 100) / 100;
+  // Rent, wages and utilities come out of the till. Interest compounds into the credit balance
+  // instead (it is not also paid in cash), but it is still a cost of the day.
   const total = costs.rent + costs.payroll + costs.utilities + interest;
-  state.cash = Math.round((state.cash - total) * 100) / 100;
+  state.cash = Math.round((state.cash - (total - interest)) * 100) / 100;
   state.debt = Math.round((state.debt + interest) * 100) / 100;
   state.lastDaySummary = {
     day: state.day,
@@ -757,7 +844,7 @@ export function borrowCredit(state, amount) {
 }
 
 export function repayCredit(state, amount = state.debt) {
-  const value = Math.min(state.cash, state.debt, Math.max(0, Math.floor(Number(amount) * 100) / 100));
+  const value = Math.min(state.cash, state.debt, Math.max(0, Math.floor(Number(amount) * 100 + 1e-6) / 100));
   if (!Number.isFinite(value) || value <= 0) return { ok: false, reason: 'nothing-to-repay' };
   state.cash = Math.round((state.cash - value) * 100) / 100;
   state.debt = Math.round((state.debt - value) * 100) / 100;
@@ -933,13 +1020,14 @@ export function advanceGame(state, deltaMinutes) {
     advanceCustomerPhases(state, step);
     advanceStaffWork(state, step);
     advancePurchasingManager(state);
-    if (state.minute >= state.nextArrival && state.minute < DAY_CLOSE) {
+    if (state.minute >= state.nextArrival && state.minute < LAST_CALL) {
       spawnCustomer(state);
       state.nextArrival = state.minute + customerArrivalInterval(state);
     }
     if (state.reputation <= 0) { endDay(state); state.gameOver = true; break; }
     if (state.minute >= DAY_CLOSE - 1e-6) {
       state.minute = DAY_CLOSE;
+      finishCustomersAtClose(state);
       endDay(state);
       break;
     }
