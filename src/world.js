@@ -252,24 +252,26 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   // The plinth stands 3 cm proud of the wall on each side, so its faces are never in the wall's plane.
   const plinthBox = (x, z, bw, bd) => { const mesh = new GFX.Mesh(new GFX.BoxGeometry(bw, 0.34, bd), plinthMat); mesh.position.set(x, 0.17, z); alignBrickUV(mesh); mesh.castShadow = true; mesh.receiveShadow = true; plinth.add(mesh); };
   const PL = 0.06;
-  plinthBox(0, -(Z + T / 2 - 0.15), W * 2 + T * 2 + PL, T + PL);
-  plinthBox(-(W + T / 2 - 0.15), 0, T + PL, Z * 2);
-  plinthBox(W + T / 2 - 0.15, 0, T + PL, Z * 2);
-  plinthBox((-W - 0.3 - PL + dl) / 2, Z + T / 2 - 0.15, dl + W + 0.3 + PL, T + PL);
-  plinthBox((dr + W + 0.3 + PL) / 2, Z + T / 2 - 0.15, W + 0.3 + PL - dr, T + PL);
+  // Front and back plinths run the full width; the side ones run only between them, so no two share a face at a corner.
+  const E = W + T / 2 + PL / 2;                                  // the plinth's outer edge
+  plinthBox(0, -(Z + T / 2 - 0.15), E * 2, T + PL);
+  plinthBox(-(W + T / 2 - 0.15), 0, T + PL, Z * 2 - T - PL);
+  plinthBox(W + T / 2 - 0.15, 0, T + PL, Z * 2 - T - PL);
+  plinthBox((-E + dl) / 2, Z + T / 2 - 0.15, dl + E, T + PL);
+  plinthBox((dr + E) / 2, Z + T / 2 - 0.15, E - dr, T + PL);
 
   // Front: a storefront. Brick bulkhead, piers, a header with the sign, glass between, a glass door.
   const front = wall('front', { normal: [0, 1] });
   const fz = Z + T / 2 - 0.15;
   const windowBottom = 0.95, windowTop = 3.15;
-  const spanL = [[-W - T, -8.4], [-4.3, -3.9], [1.2, dl]];            // piers either side of the left windows
+  const spanL = [[-W - T / 2, -8.4], [-4.3, -3.9], [1.2, dl]];            // piers either side of the left windows
   const panes = [[-8.4, -4.3], [-3.9, 1.2], [3.6, 8.4]];              // the three display windows
-  front.brick((-W - T + dl) / 2, windowBottom / 2, fz, dl + W + T, windowBottom, T);          // left bulkhead
-  front.brick((dr + W + T) / 2, windowBottom / 2, fz, W + T - dr, windowBottom, T);            // right bulkhead
+  front.brick((-W - T / 2 + dl) / 2, windowBottom / 2, fz, dl + W + T / 2, windowBottom, T);          // left bulkhead
+  front.brick((dr + W + T / 2) / 2, windowBottom / 2, fz, W + T / 2 - dr, windowBottom, T);            // right bulkhead
   for (const [a, b] of spanL) front.brick((a + b) / 2, (windowBottom + windowTop) / 2, fz, b - a, windowTop - windowBottom, T);
   front.brick((dr + 3.6) / 2, (windowBottom + windowTop) / 2, fz, 3.6 - dr, windowTop - windowBottom, T);   // pier by the door
-  front.brick((8.4 + W + T) / 2, (windowBottom + windowTop) / 2, fz, W + T - 8.4, windowTop - windowBottom, T);
-  front.brick(0, (windowTop + H) / 2, fz, W * 2 + T * 2, H - windowTop, T);                   // the header, all along
+  front.brick((8.4 + W + T / 2) / 2, (windowBottom + windowTop) / 2, fz, W + T / 2 - 8.4, windowTop - windowBottom, T);
+  front.brick(0, (windowTop + H) / 2, fz, W * 2 + T, H - windowTop, T);                   // the header, all along
   for (const [a, b] of panes) {
     const cx = (a + b) / 2, bw = b - a, ch = (windowBottom + windowTop) / 2;
     front.glass(cx, ch, fz, bw, windowTop - windowBottom, 0.05);
@@ -306,8 +308,8 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   const back = wall('back', { normal: [0, -1] });
   const bz = -(Z + T / 2 - 0.15);
   const rl = REAR_DOOR.x - REAR_DOOR.width / 2, rr = REAR_DOOR.x + REAR_DOOR.width / 2;
-  back.brick((-W - T + rl) / 2, H / 2, bz, rl + W + T, H, T);
-  back.brick((rr + W + T) / 2, H / 2, bz, W + T - rr, H, T);
+  back.brick((-W - T / 2 + rl) / 2, H / 2, bz, rl + W + T / 2, H, T);
+  back.brick((rr + W + T / 2) / 2, H / 2, bz, W + T / 2 - rr, H, T);
   back.brick(REAR_DOOR.x, (2.4 + H) / 2, bz, REAR_DOOR.width, H - 2.4, T);
   back.box(REAR_DOOR.x, 1.2, bz + 0.05, REAR_DOOR.width - 0.06, 2.4, 0.08, 'rear', () => std('#44545a', { metalness: 0.6, roughness: 0.45 }));
   back.box(REAR_DOOR.x + 0.45, 1.1, bz + 0.12, 0.08, 0.3, 0.06, 'handle', () => std('#c9ced1', { metalness: 0.8, roughness: 0.3 }));
@@ -319,7 +321,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   const right = wall('right', { normal: [1, 0] });
   for (const [w, sx] of [[left, -1], [right, 1]]) {
     const wx = sx * (W + T / 2 - 0.15);
-    w.brick(wx, H / 2, 0, T, H, Z * 2 + T);
+    w.brick(wx, H / 2, 0, T, H, Z * 2 - T);                          // between the front and back walls, not overlapping them
     const windows = sx < 0 ? [1.4, 4.4] : [-3.4, -0.6];
     for (const z of windows) fakeWindow(w, { cx: wx - sx * 0.17, cy: 2.2, cz: z, w: 1.7, h: 1.5, axis: 'z' });
   }
@@ -329,7 +331,7 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   // The backroom's own walls, shorter than the shell: they hide the room from either side, so they fade from both.
   const partitionH = 3.0;
   const partNS = wall('backroom-east', { normal: [1, 0], both: true });
-  partNS.brick(br.maxX, partitionH / 2, (br.minZ + br.maxZ) / 2, T, partitionH, br.maxZ - br.minZ + T, '#b9b2a2');
+  partNS.brick(br.maxX, partitionH / 2, (br.minZ + br.maxZ - T / 2) / 2, T, partitionH, br.maxZ - T / 2 - br.minZ, '#b9b2a2');   // from the back wall to the south partition's face
   partNS.plane('STOCKROOM', br.maxX + 0.17, 2.3, -4.3, 1.8, 0.36, { background: '#3d5148', foreground: '#f4e9d1', accent: '#d6b578', fontSize: 40, width: 576, height: 92 }, Math.PI / 2);
   const partEW = wall('backroom-south', { normal: [0, 1], both: true });
   const gapL = br.doorX - br.doorWidth / 2, gapR = br.doorX + br.doorWidth / 2;
@@ -383,15 +385,18 @@ export async function createBodegaWorld(host, onProgress = () => {}) { // eslint
   function coolers() {
     const { zBack, depth, height, sections } = COOLERS;
     const x0 = sections[0].x0, x1 = sections.at(-1).x1;
-    box(scene, (x0 + x1) / 2, 0.15, zBack + depth / 2, x1 - x0 + 0.06, 0.3, depth, mats.steelDark);                // compressor plinth
-    box(scene, (x0 + x1) / 2, height / 2 + 0.15, zBack + 0.04, x1 - x0, height, 0.08, std('#cfd8d8', { roughness: 0.5 }));
+    // The compressor plinth is set back from the glass (so the glass never shares its front plane), and the
+    // back panel stands a centimeter off the wall (so its back face is not in the plinth's or the wall's plane).
+    box(scene, (x0 + x1) / 2, 0.15, zBack + (depth - 0.05) / 2, x1 - x0 + 0.06, 0.3, depth - 0.05, mats.steelDark);
+    box(scene, (x0 + x1) / 2, height / 2 + 0.15, zBack + 0.05, x1 - x0, height, 0.08, std('#cfd8d8', { roughness: 0.5 }));
     box(scene, (x0 + x1) / 2, height + 0.2, zBack + depth / 2, x1 - x0 + 0.1, 0.16, depth + 0.06, mats.steelDark);   // the canopy
     box(scene, (x0 + x1) / 2, height + 0.05, zBack + depth - 0.06, x1 - x0, 0.05, 0.05, mats.led, { castShadow: false });
+    // One post at every section boundary (neighboring sections used to each stand one there, in the same place).
+    for (const edge of [...sections.map((sec) => sec.x0), sections.at(-1).x1]) box(scene, edge, height / 2 + 0.15, zBack + depth - 0.02, 0.08, height, 0.1, mats.metal);
     for (const sec of sections) {
       const cx = (sec.x0 + sec.x1) / 2, sw = sec.x1 - sec.x0;
       for (const level of COOLER_LEVELS) box(scene, cx, level - 0.03, zBack + 0.5, sw - 0.06, 0.05, 0.84, mats.metal);
-      box(scene, cx, height / 2 + 0.15, zBack + depth - 0.02, sw - 0.04, height - 0.1, 0.04, mats.glass, { castShadow: false });
-      for (const edge of [sec.x0, sec.x1]) box(scene, edge, height / 2 + 0.15, zBack + depth - 0.02, 0.08, height, 0.1, mats.metal);
+      box(scene, cx, (0.3 + height + 0.1) / 2, zBack + depth - 0.02, sw - 0.04, height - 0.2, 0.04, mats.glass, { castShadow: false });   // above the plinth, not overlapping it
       box(scene, cx, height / 2 + 0.15, zBack + depth - 0.01, 0.05, height - 0.1, 0.07, mats.metal);
       signPlane(scene, sec.label, cx, height + 0.2, zBack + depth + 0.04, Math.min(3, sw - 0.3), 0.3, { background: '#38545a', foreground: '#eef3e5', accent: '#b3d9d2', fontSize: 38, width: 768, height: 80 });
     }
